@@ -20,3 +20,12 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+# Model weights
+*.pth
+# Ignore experiment/result folders
+breast_results/
+DERMA/
+derma_results/
+Exp_Yolanda/
+
+venv/
