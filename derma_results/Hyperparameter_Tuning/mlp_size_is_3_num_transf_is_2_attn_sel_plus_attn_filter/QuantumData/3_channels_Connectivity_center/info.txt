@@ -1,5 +1,0 @@
-Data was generated through a Quanvolution Kernel of Size 3x3 with the following connectivity graph:
-
-'center': [[0, 4], [1, 4], [2, 4], [3, 4], [5, 4], [6, 4], [7, 4], [8, 4]]
-
-Output of each step is the center of the graph, that is, node #4.
