@@ -1,0 +1,70 @@
+{
+    "learning_rate": [
+        0.0004
+    ],
+    "patch_size": [
+        4
+    ],
+    "dropout": [
+        {
+            "embedding_attn": 0.475,
+            "after_attn": 0.475,
+            "feedforward": 0.35,
+            "embedding_pos": 0.35
+        }
+    ],
+    "num_head": [
+        4
+    ],
+    "num_transf": [
+        2
+    ],
+    "RBF_similarity": [
+        "none"
+    ],
+    "mlp_size": [
+        9
+    ],
+    "weight_decay": [
+        1e-07,
+        1e-05,
+        0.05,
+        0.1
+    ],
+    "attention_selection": [
+        "filter"
+    ],
+    "entangle": [
+        false
+    ],
+    "RD": [
+        2
+    ],
+    "paralel": [
+        1
+    ],
+    "patience": [
+        -1
+    ],
+    "connectivity": [
+        "chain"
+    ],
+    "scheduler_factor": [
+        0.998
+    ],
+    "q_stride": [
+        1
+    ],
+    "quantum_data": [
+        "padded"
+    ],
+    "quantum_mlp": [
+        false
+    ],
+    "quantum_classification": [
+        false
+    ],
+    "train_q": [
+        false
+    ]
+}

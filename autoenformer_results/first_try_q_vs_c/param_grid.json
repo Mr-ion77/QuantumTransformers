@@ -1,0 +1,73 @@
+{
+    "lr": [
+        0.00125
+    ],
+    "patch_size": [
+        4
+    ],
+    "dropout": [
+        {
+            "embedding_attn": 0,
+            "after_attn": 0,
+            "feedforward": 0,
+            "embedding_pos": 0
+        }
+    ],
+    "num_head": [
+        4
+    ],
+    "num_transf": [
+        2
+    ],
+    "RBF_similarity": [
+        "none"
+    ],
+    "mlp_size": [
+        6
+    ],
+    "weight_decay": [
+        1e-07
+    ],
+    "attention_selection": [
+        "none"
+    ],
+    "entangle": [
+        true
+    ],
+    "RD": [
+        1
+    ],
+    "paralel": [
+        2
+    ],
+    "patience": [
+        -1
+    ],
+    "connectivity": [
+        "david_star"
+    ],
+    "scheduler_factor": [
+        0.998
+    ],
+    "q_stride": [
+        1
+    ],
+    "quantum_data": [
+        "none"
+    ],
+    "quantum_mlp": [
+        false
+    ],
+    "quantum_classification": [
+        false
+    ],
+    "train_q": [
+        false
+    ],
+    "full_transformer": [
+        true
+    ],
+    "save_latent": [
+        false
+    ]
+}

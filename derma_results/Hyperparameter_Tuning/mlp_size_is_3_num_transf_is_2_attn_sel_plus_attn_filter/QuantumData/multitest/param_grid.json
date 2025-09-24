@@ -1,0 +1,103 @@
+{
+    "learning_rate": [
+        {
+            "king_measure_all": 0.0004,
+            "king_measure_cross": 0.00085,
+            "king_measure_corners": 0.001,
+            "king_2_ancilla": 0.00175,
+            "king_1_ancilla": 0.0025
+        }
+    ],
+    "patch_size": [
+        4
+    ],
+    "dropout": [
+        {
+            "king_measure_all": {
+                "embedding_attn": 0.475,
+                "after_attn": 0.475,
+                "feedforward": 0.35,
+                "embedding_pos": 0.35
+            },
+            "king_measure_cross": {
+                "embedding_attn": 0.375,
+                "after_attn": 0.375,
+                "feedforward": 0.3,
+                "embedding_pos": 0.3
+            },
+            "king_measure_corners": {
+                "embedding_attn": 0.325,
+                "after_attn": 0.325,
+                "feedforward": 0.275,
+                "embedding_pos": 0.275
+            },
+            "king_2_ancilla": {
+                "embedding_attn": 0.275,
+                "after_attn": 0.275,
+                "feedforward": 0.25,
+                "embedding_pos": 0.25
+            },
+            "king_1_ancilla": {
+                "embedding_attn": 0.25,
+                "after_attn": 0.25,
+                "feedforward": 0.225,
+                "embedding_pos": 0.225
+            }
+        }
+    ],
+    "num_head": [
+        4
+    ],
+    "num_transf": [
+        2
+    ],
+    "RBF_similarity": [
+        "none"
+    ],
+    "mlp_size": [
+        9
+    ],
+    "weight_decay": [
+        1e-07
+    ],
+    "attention_selection": [
+        "filter"
+    ],
+    "entangle": [
+        false
+    ],
+    "RD": [
+        2
+    ],
+    "paralel": [
+        1
+    ],
+    "patience": [
+        -1
+    ],
+    "connectivity": [
+        "chain"
+    ],
+    "scheduler_factor": [
+        0.998
+    ],
+    "q_stride": [
+        1
+    ],
+    "quantum_data": [
+        "king_measure_all",
+        "king_measure_cross",
+        "king_measure_corners",
+        "king_2_ancilla",
+        "king_1_ancilla"
+    ],
+    "quantum_mlp": [
+        false
+    ],
+    "quantum_classification": [
+        false
+    ],
+    "train_q": [
+        false
+    ]
+}

@@ -1,0 +1,21 @@
+@qml.qnode(dev, interface="torch", diff_method="backprop")
+        def circuit_(inputs, weights):
+            for idx in range(num_qubits):
+                qml.RX(inputs[idx], wires=idx)
+                qml.Hadamard(wires=idx)
+
+            for qubit in range(num_qubits):
+                phi, thetha, rho = weights[qubit]
+                qml.RX(phi, wires=qubit)
+                qml.RY(theta, wires=qubit)
+                qml.RZ(rho, wires=qubit)
+
+            for pair in self.graphs[num_qubits][graph]:
+                qml.CNOT(wires=pair)
+                qml.RZ(np.pi / 3, wires=pair[1])
+                qml.CNOT(wires=pair)
+
+            for qubit in range(num_qubits):
+                qml.RY(np.pi / 2, wires=qubit)
+
+            return [qml.expval(qml.PauliZ(i)) for i in range(num_qubits)]
