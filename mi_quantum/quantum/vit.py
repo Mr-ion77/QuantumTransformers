@@ -578,16 +578,18 @@ class DeViT(nn.Module):
                 self.attention_maps = []
 
                 self.vit = VisionTransformer(
-                    img_size=28, num_channels=3, num_classes=num_classes,
+                    img_size=shape[-1], num_channels=shape[0], num_classes=num_classes,
                     patch_size=p['patch_size'], hidden_size=shape[0] * p['patch_size']**2, num_heads=p['num_head'],
                     num_transformer_blocks=p['num_transf'], attention_selection='none', RBF_similarity = 'none',
-                    mlp_hidden_size=p['mlp_size'], quantum_mlp = False, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, channels_last=False, entangle=False, quantum_classification = False,
-                    paralel = p['paralel'], RD = 1, train_q = False, q_stride = 1, connectivity = 'chain'
+                    mlp_hidden_size=p['mlp_size'], quantum_mlp = False, dropout = p['dropout'], channels_last=False, entangle=False, quantum_classification = False,
+                    paralel = p['paralel'], RD = p['RD'], train_q = False, q_stride = p['q_stride'], connectivity = 'chain'
                 )
 
-
-
+                
             def forward(self, x):  
+                
+                assert x.shape[-1] == self.p['mlp_size'], f"Input feature dimension ({x.shape[-1]}) does not match expected size ({self.p['mlp_size']})"
+
                 x = self.dimension_adjustment(x)  
                 x = x.reshape((x.shape[0],) + self.shape)
                 return self.vit(x)

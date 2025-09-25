@@ -8,6 +8,7 @@ from itertools import product
 from mi_quantum.data import split_dataset_by_label, relabel_dataset
 from mi_quantum.quantum.double_step_classification_vit import DbStpClssViT
 from torch.utils.data import ConcatDataset
+import matplotlib.pyplot as plt
 
 # Config
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -33,8 +34,7 @@ p2 = {
 columns = [
     # 'idx', 'learning_rate', 'hidden_size', 'dropout', 'num_head', 'num_transf', 'mlp_size', 'patch_size',
     # 'weight_decay', 'attention_selection', 'entangle', 'penny_or_kipu', 'RD', 'convolutional', 'paralel', 
-    'test_auc1', 'test_acc1',  'space', 'test_auc2', 'test_acc2',  'spacE', # 'val_auc1', 'val_acc1', 'val_auc2', 'val_acc2',
-    'test_auc_last', 'test_acc_last', 'thres'
+    'test_mse', 'val_mse', '#params1' , 'test_auc', 'test_acc', 'val_auc', 'val_acc', '#params2'
 ]
 
 channels_last = False
@@ -80,16 +80,6 @@ for idx in range(50):
 
     print(f"\nAutoencoder training completed succesfully.\nTest MSE (first step): {test_mse:.2f}")
 
-    # Create second model for the second step
-    model2 = qpctorch.quantum.VisionTransformer(
-        img_size=img_size, num_channels=num_channels, num_classes=7,
-        patch_size= p2['patch_size'], hidden_size=p2['hidden_size'], num_heads=p2['num_head'],
-        num_transformer_blocks=p2['num_transf'], attention_selection=p2['attention_selection'],
-        mlp_hidden_size=p2['mlp_size'], dropout=p2['dropout'],
-        channels_last=False, entangle=p2['entangle'], q_stride = p2['q_stride'], 
-        RD=p2['RD'], paralel=p2['paralel']
-    )
-
     # Prepare datasets for the second step: get latent representations for each dataset and transform them into a new dataloader
     DataLoaders = [train_dl, val_dl, test_dl]
     LatentDatasetsTensors = []
@@ -117,26 +107,40 @@ for idx in range(50):
                                         tensors = LatentDatasetTensors, transforms={'train': q_train_transforms, 'val': q_valid_transforms, 'test': q_valid_transforms}
                                         )
 
+    # Create second model for the second step)
+
+    model2 = qpctorch.quantum.vit.DeVit(num_classes=7, p = p2, shape = shape)
+
     print('\nTraining second model: classifier ViT on latent representations\n')
 
     # Train second model
-    test_auc2, test_acc2, val_auc2, val_acc2, params2 = qpctorch.training.train_and_evaluate(
-        model2, train_others_dl, val_others_dl, test_others_dl, num_classes=6,
-        learning_rate=p2['learning_rate'], num_epochs=N, device=device, mapping=False,
+    test_auc, test_acc, val_auc, val_acc, params2 = qpctorch.training.train_and_evaluate(
+        model2, latent_train_dl, latent_val_dl, latent_test_dl, num_classes=7,
+        learning_rate=p2['learning_rate'], num_epochs=N2, device=device, mapping=False,
         res_folder=str(save_path), hidden_size=p2['hidden_size'], dropout=p2['dropout'],
         num_heads=p2['num_head'], patch_size=p2['patch_size'], num_transf=p2['num_transf'],
-        mlp=p2['mlp_size'], wd=p2['weight_decay'], patience= p2['patience'], scheduler_factor=p2['scheduler_factor']
+        mlp=p2['mlp_size'], wd=p2['weight_decay'], patience= p2['patience'], scheduler_factor=p2['scheduler_factor'], autoencoder=False
     )
-
 
     
     # Save results
     row = {
         'idx': idx,
-            'test_mse': test_mse, 'val_mse': val_mse, 
-            'test_auc': test_auc, 'test_acc': test_acc, 'val_auc': val_auc, 'val_acc': val_acc
+            'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
+            'test_auc': test_auc, 'test_acc': test_acc, 'val_auc': val_auc, 'val_acc': val_acc, '#params2': params2,
+            **p1, **p2
     }
 
     pd.DataFrame([row], columns=columns).to_csv(
         '../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=False, index=False
     )
+
+
+    History_df = pd.read_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv')
+
+    plt.figure(figsize=(10, 6))
+    plt.boxplot([History_df['val_auc'], History_df['test_auc']], labels=['Validation AUC', 'Test AUC'])
+    plt.title('Validation and Test AUC Distribution')
+    plt.ylabel('AUC')
+    plt.grid(axis='y')
+    plt.savefig('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/auc_boxplot.png')
