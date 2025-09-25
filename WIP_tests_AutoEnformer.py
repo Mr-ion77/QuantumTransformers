@@ -20,14 +20,14 @@ N2 = 150  # Number of epochs for the second step
 
 # Hyperparams
 p1 = {
-    'learning_rate': 0.001, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.3, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
+    'learning_rate': 0.001, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
     'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
     'connectivity': 'king', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1 , 'RBF_similarity': 'none'  # No early stopping
 }
 
 p2 = {
-    'learning_rate': 0.005, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.125, 'after_attn': 0.125, 'feedforward': 0.125, 'embedding_pos': 0.125},
-    'quantum' : True, 'num_head': 4, , 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
+    'learning_rate': 0.001, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.1, 'after_attn': 0.05, 'feedforward': 0.05, 'embedding_pos': 0.05},
+    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
     'paralel': 2, 'patience': -1, 'scheduler_factor': 0.9995, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
 }
 

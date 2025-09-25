@@ -3,6 +3,24 @@ from torch import nn
 from mi_quantum.quantum.pennylane_backend import QuantumLayer
 import numbers
 
+def identity_tensor(d: int, n: int) -> torch.Tensor:
+        """
+        Creates an n-dimensional identity tensor of shape (d, d, ..., d)
+        with ones where all indices are equal, zeros elsewhere.
+        """
+        # Create an n-dimensional grid of indices
+        indices = torch.arange(d)
+        # Generate n copies of indices for broadcasting
+        grids = torch.meshgrid(*([indices] * n), indexing='ij')
+        # Stack to get shape (n, d, d, ..., d)
+        stacked = torch.stack(grids)  # shape: (n, d, d, ..., d)
+
+        # Check where all indices along the first dimension are equal
+        # That is, all equal along axis=0
+        equal_mask = torch.all(stacked == stacked[0], dim=0)
+
+        return equal_mask.to(dtype=torch.float32)
+
 # See:
 # - https://nlp.seas.harvard.edu/annotated-transformer/
 # - https://github.com/rdisipio/qtransformer/blob/main/qtransformer.py
@@ -50,7 +68,11 @@ class NMultiheadSelfAttention(nn.Module):
         self.dropout = nn.Dropout(dropout['embedding_attn'])
 
         # Learnable N-way tensor for multilinear attention
-        self.A = nn.Parameter(torch.randn(*(self.N * (self.head_dim,))))  # (D, D, ..., D)
+        if N != 2:
+            self.A = nn.Parameter(torch.randn(*(self.N * (self.head_dim,))))
+        else:
+            self.register_buffer('A_identity', identity_tensor(d=self.head_dim, n=2))
+    
 
     def rank_patches_by_attention(attn: torch.Tensor) -> torch.Tensor:
             """
@@ -109,9 +131,8 @@ class NMultiheadSelfAttention(nn.Module):
 
         # execute einsum, resulting shape -> (B, H, S, S)
         # (this implicitly sums over the 's' token index for context modes)
-        attn_logits = torch.einsum(einsum_str, self.A, *proj_x)  # (B, H, S, S)
-        print("Einsum string:", einsum_str)  # Example N=3: 'abc,bhia,bhjc,bhsc->bhij' (note bhsc uses token 's' so it will be summed)
-        print("Attention logits shape:", attn_logits.shape)
+        A = self.A if self.N != 2 else self.A_identity.to(x.device)
+        attn_logits = torch.einsum(einsum_str, A, *proj_x)  # (B, H, S, S)
 
         # scale (similar to standard attention)
         attn_logits = attn_logits / (self.head_dim ** 0.5)
@@ -247,7 +268,7 @@ class FeedForward(nn.Module):
         return x
 
 class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
-    def __init__(self, hidden_size, num_heads, mlp_hidden_size, hidden_size_out, attention_N = 2, quantum_mlp = True, RBF_similarity= False, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
+    def __init__(self, hidden_size, num_heads, mlp_hidden_size, hidden_size_out, Attention_N = 2, quantum_mlp = True, RBF_similarity= False, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
                     attention_selection="filter", train_q = False, entangle = True, q_stride = 4, connectivity = 'chain', RD = 1, img_size = 28, patch_size = 4):
         super().__init__()
 
@@ -259,7 +280,7 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
         self.Attention_N = Attention_N
         # Attention components
         self.attn_norm = nn.LayerNorm(hidden_size)
-        self.attn = NMultiheadSelfAttention(embed_dim = hidden_size, num_heads = num_heads, N=Attention_N, dropout = dropout, self.RBF_similarity)
+        self.attn = NMultiheadSelfAttention(embed_dim = hidden_size, num_heads = num_heads, N=Attention_N, dropout = dropout, RBF_similarity=self.RBF_similarity)
         self.attn_dropout = nn.Dropout(dropout['after_attn'])
         self.hidden_size_out = hidden_size_out
         self.RD = RD
@@ -512,7 +533,7 @@ class AutoEnformer(nn.Module):
                 self.hidden_size = hidden_size
                 self.num_heads = num_heads
                 self.mlp_hidden_size = mlp_hidden_size
-                self.Attention_N = 
+                self.Attention_N = Attention_N
                 self.attention_selection = attention_selection
                 self.starting_dim = num_channels * patch_size ** 2
                 self.dropout_values = dropout
