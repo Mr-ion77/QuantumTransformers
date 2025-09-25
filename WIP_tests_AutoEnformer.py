@@ -16,19 +16,19 @@ print(f"Using device: {device}")
 
 B = 256
 N1 = 100  # Number of epochs
-N2 = 100  # Number of epochs for the second step
+N2 = 150  # Number of epochs for the second step
 
 # Hyperparams
 p1 = {
     'learning_rate': 0.01, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.3, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
-    'quantum' = True, 'num_head': 4, 'num_transf': 1, 'mlp_size': 6, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
-    'connectivity': 'david_star', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1  # No early stopping
+    'quantum' : True, 'num_head': 4, 'num_transf': 1, 'mlp_size': 6, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
+    'connectivity': 'david_star', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1 , 'RBF_similarity': 'none'  # No early stopping
 }
 
 p2 = {
     'learning_rate': 0.01, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.3, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
-    'quantum' = True, 'num_head': 4, 'num_transf': 2, 'mlp_size': 6, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
-    'paralel': 2, 'patience': -1, 'scheduler_factor': 1.0, 'q_stride': 1  # No early stopping
+    'quantum' : True, 'num_head': 4, 'num_transf': 2, 'mlp_size': 6, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
+    'paralel': 2, 'patience': -1, 'scheduler_factor': 1.0, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
 }
 
 columns = [
@@ -65,12 +65,12 @@ for idx in range(50):
         img_size=img_size, num_channels=num_channels,   # set num_classes as needed
         patch_size=p1['patch_size'], hidden_size=p1['hidden_size'], num_heads=p1['num_head'],
         num_transformer_blocks=p1['num_transf'], attention_selection=p1['attention_selection'],
-        mlp_hidden_size=p1['mlp_size'], dropout=p1['dropout'], channels_last=False
+        mlp_hidden_size=p1['mlp_size'], dropout=p1['dropout'], RBF_similarity = p1['RBF_similarity'] ,channels_last=False
     )
 
     
     # Train
-    test_mse, val_mse, val_auc1, val_acc1, params1 = qpctorch.training.train_and_evaluate(
+    test_mse, val_mse, params1 = qpctorch.training.train_and_evaluate(
         model1, train_dl, val_dl, test_dl, num_classes=7,
         learning_rate=p1['learning_rate'], num_epochs=N1, device=device, mapping=False,
         res_folder=str(save_path), hidden_size=p1['hidden_size'], dropout=p1['dropout'],
@@ -101,15 +101,15 @@ for idx in range(50):
         all_labels = torch.tensor(all_labels)
 
 
-        LatentDatasetsTensors.append( zip(list(all_latents,all_labels) ) )
+        LatentDatasetsTensors.append( list(zip(all_latents,all_labels)) )
 
-    latent_train_dl, latent_val_dl, latent_test_dl = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                        tensors = LatentDatasetTensors, transforms={'train': q_train_transforms, 'val': q_valid_transforms, 'test': q_valid_transforms}
+    latent_train_dl, latent_val_dl, latent_test_dl, shape2 = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
+                                        tensors = LatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
                                         )
 
     # Create second model for the second step)
 
-    model2 = qpctorch.quantum.vit.DeVit(num_classes=7, p = p2, shape = shape)
+    model2 = qpctorch.quantum.vit.DeViT(num_classes=7, p = p2, shape = shape)
 
     print('\nTraining second model: classifier ViT on latent representations\n')
 

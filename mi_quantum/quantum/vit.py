@@ -478,13 +478,13 @@ class AutoEnformer(nn.Module):
                 self.pos_embedding = nn.Parameter(torch.randn(1, num_steps, hidden_size) * 0.02)
                 self.dropout = nn.Dropout(self.dropout_values['embedding_pos'])
 
-                self.encoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = self.quantum_mlp,
+                self.encoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = False,
                                                                                                     RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
                                                                                                     attention_selection = 'none',
                                                                                                     train_q = False, entangle = False, q_stride = self.q_stride )
                                                         for i in range(num_transformer_blocks)]) 
                 
-                self.decoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = self.quantum_mlp,
+                self.decoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = False,
                                                                                             RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
                                                                                             attention_selection = 'none',
                                                                                             train_q = False, entangle = False, q_stride = self.q_stride )
