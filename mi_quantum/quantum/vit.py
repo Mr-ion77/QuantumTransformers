@@ -292,10 +292,10 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
 
 
 class VisionTransformer(nn.Module):
-    def __init__(self, data_type, img_size, num_channels, num_classes, patch_size, hidden_size, num_heads, num_transformer_blocks, mlp_hidden_size, 
+    def __init__(self, img_size, num_channels, num_classes, patch_size, hidden_size, num_heads, num_transformer_blocks, mlp_hidden_size, 
                     quantum_mlp = False, RBF_similarity = 'none', quantum_classification = False, dropout= {'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
                     channels_last=False, RD = 1, attention_selection = 'filter', 
-                    paralel = 1, train_q = False, entangle = True, q_stride = 4, connectivity = 'chain'
+                    paralel = 1, train_q = False, entangle = True, q_stride = 1, connectivity = 'chain'
                     ):
         super().__init__()
 
@@ -354,7 +354,7 @@ class VisionTransformer(nn.Module):
         self.layer_norm = nn.LayerNorm(hidden_size // (RD**(num_transformer_blocks)))  # Normalization after the last transformer block
 
         self.linear = nn.Linear( (hidden_size // (RD**(num_transformer_blocks)) ) * paralel, num_classes)
-        self.linear2 = nn.Linear(num_classes,num_classes) if not self.quantum_classification else QuantumLayer(num_qubits=num_classes, num_qlayers=1, entangle=self.entangle, trainBool= self.train_q, graph=self.connectivity)
+        self.linear2 = nn.Linear(num_classes,num_classes) if not self.quantum_classification else QuantumLayer(num_qubits=num_classes, entangle=self.entangle, trainBool= self.train_q, graph=self.connectivity)
 
         
 
@@ -446,9 +446,9 @@ class Decoder(nn.Module):
         return out
     
 class AutoEnformer(nn.Module):
-            def __init__(self, data_type, img_size, num_channels, num_classes, patch_size, hidden_size, num_heads, num_transformer_blocks, RBF_similarity ,mlp_hidden_size, quantum_mlp = False, train_q = False,
-                              quantum_classification = False, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, channels_last=False, attention_selection='none', entangle=False, RD=1,
-                              q_stride = 1, connectivity = 'chain', full_transformer = False):
+            def __init__(self, img_size, num_channels, patch_size, hidden_size, num_heads, num_transformer_blocks, RBF_similarity ,mlp_hidden_size,
+                              dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, channels_last=False, attention_selection='none', RD=1,
+                              q_stride = 1):
                 super(AutoEnformer, self).__init__()
 
                 self.channels_last = channels_last
@@ -460,15 +460,11 @@ class AutoEnformer(nn.Module):
                 self.starting_dim = num_channels * patch_size ** 2
                 self.dropout_values = dropout
                 self.num_channels = num_channels
-                self.quantum_mlp = quantum_mlp
-                self.train_q = train_q
-                self.RBF_similarity = RBF_similarity
-                self.full_transformer = full_transformer
 
-                self.train_q = train_q
-                self.entangle = entangle
+                self.RBF_similarity = RBF_similarity
+
                 self.q_stride = q_stride
-                self.connectivity = connectivity
+
                 self.patch_embedding = nn.Conv2d(
                     in_channels=num_channels,
                     out_channels=hidden_size,
@@ -482,28 +478,18 @@ class AutoEnformer(nn.Module):
                 self.pos_embedding = nn.Parameter(torch.randn(1, num_steps, hidden_size) * 0.02)
                 self.dropout = nn.Dropout(self.dropout_values['embedding_pos'])
 
-                if self.full_transformer:
-                    self.encoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = self.quantum_mlp,
-                                                                                                        RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
-                                                                                                        attention_selection = 'none',
-                                                                                                        train_q = self.train_q, entangle = self.entangle, q_stride = self.q_stride, connectivity = self.connectivity)
-                                                            for i in range(num_transformer_blocks)]) 
-                    
-                    self.decoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = self.quantum_mlp,
-                                                                                                RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
-                                                                                                attention_selection = 'none',
-                                                                                                train_q = self.train_q, entangle = self.entangle, q_stride = self.q_stride, connectivity = self.connectivity)
-                                                    for i in range(num_transformer_blocks, 0, -1)]) 
-                    
-                else:
-                    self.encoder_layers = nn.ModuleList([ MultiheadSelfAttention(hidden_size // RD**i, num_heads, dropout = self.dropout_values, RBF_similarity= self.RBF_similarity)
-                                                            for i in range(num_transformer_blocks)]) 
-                    
-                    self.decoder_layers = nn.ModuleList([ MultiheadSelfAttention(hidden_size // RD**i, num_heads, dropout = self.dropout_values, RBF_similarity= self.RBF_similarity)
-                                                    for i in range(num_transformer_blocks, 0, -1)]) 
-
-
-                    
+                self.encoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = self.quantum_mlp,
+                                                                                                    RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
+                                                                                                    attention_selection = 'none',
+                                                                                                    train_q = False, entangle = False, q_stride = self.q_stride )
+                                                        for i in range(num_transformer_blocks)]) 
+                
+                self.decoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = self.quantum_mlp,
+                                                                                            RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
+                                                                                            attention_selection = 'none',
+                                                                                            train_q = False, entangle = False, q_stride = self.q_stride )
+                                                        for i in range(num_transformer_blocks, 0, -1) ]) 
+                                        
                 self.Encoder = Encoder(self.encoder_layers, self.dropout)
                 self.Decoder = Decoder(self.decoder_layers)
 
@@ -592,7 +578,7 @@ class DeViT(nn.Module):
                 self.attention_maps = []
 
                 self.vit = VisionTransformer(
-                    data_type="latent", img_size=28, num_channels=3, num_classes=num_classes,
+                    img_size=28, num_channels=3, num_classes=num_classes,
                     patch_size=p['patch_size'], hidden_size=shape[0] * p['patch_size']**2, num_heads=p['num_head'],
                     num_transformer_blocks=p['num_transf'], attention_selection='none', RBF_similarity = 'none',
                     mlp_hidden_size=p['mlp_size'], quantum_mlp = False, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, channels_last=False, entangle=False, quantum_classification = False,

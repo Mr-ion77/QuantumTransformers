@@ -14,19 +14,20 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 B = 256
-N = 100  # Number of epochs
+N1 = 100  # Number of epochs
+N2 = 100  # Number of epochs for the second step
 
 # Hyperparams
 p1 = {
     'learning_rate': 0.01, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.3, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
-    'quantum' = True, 'num_head': 4, 'num_transf': 2, 'mlp_size': 3, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'entangle': True,
-    'penny_or_kipu': 'kipu', 'RD': 1, 'convolutional': True, 'paralel': 2, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 8  # No early stopping
+    'quantum' = True, 'num_head': 4, 'num_transf': 1, 'mlp_size': 6, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'entangle': True,
+    'penny_or_kipu': 'kipu', 'RD': 1, 'convolutional': True, 'paralel': 2, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1  # No early stopping
 }
 
 p2 = {
     'learning_rate': 0.01, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.3, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
-    'quantum' = True, 'num_head': 4, 'num_transf': 3, 'mlp_size': 3, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'entangle': True,
-    'penny_or_kipu': 'kipu', 'RD': 1, 'convolutional': True, 'paralel': 2, 'patience': -1, 'scheduler_factor': 1.0, 'q_stride': 8  # No early stopping
+    'quantum' = True, 'num_head': 4, 'num_transf': 2, 'mlp_size': 6, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
+    'paralel': 2, 'patience': -1, 'scheduler_factor': 1.0, 'q_stride': 1  # No early stopping
 }
 
 columns = [
@@ -35,6 +36,8 @@ columns = [
     'test_auc1', 'test_acc1',  'space', 'test_auc2', 'test_acc2',  'spacE', # 'val_auc1', 'val_acc1', 'val_auc2', 'val_acc2',
     'test_auc_last', 'test_acc_last', 'thres'
 ]
+
+channels_last = False
 
 df = pd.DataFrame(columns=columns)
 df.to_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=True, index=False)
@@ -49,31 +52,33 @@ for idx in range(50):
     print('\n')
 
     # Load data
-    train_dl, val_dl, test_dl = qpctorch.data.get_medmnist_dataloaders(
+    train_dl, val_dl, test_dl, shape = qpctorch.data.get_medmnist_dataloaders(
         pixel=28, data_flag='dermamnist', batch_size=B, num_workers=4, pin_memory=True
     )
 
+    num_channels = shape[-1] if channels_last else shape[0]
+    img_size = shape[1]  # Assuming square images
+
     # Split datasets by label
 # Model
-    model1 = qpctorch.quantum.VisionTransformer(
-        data_type="original", img_size=28, num_channels=3, num_classes=2,
-        patch_size= p1['patch_size'], hidden_size=p1['hidden_size'], num_heads=p1['num_head'],
+    model1 = qpctorch.quantum.vit.AutoEnformer(
+        img_size=img_size, num_channels=num_channels,   # set num_classes as needed
+        patch_size=p1['patch_size'], hidden_size=p1['hidden_size'], num_heads=p1['num_head'],
         num_transformer_blocks=p1['num_transf'], attention_selection=p1['attention_selection'],
-        mlp_hidden_size=p1['mlp_size'], dropout=p1['dropout'], channels_last=False,
-        entangle=p1['entangle'], penny_or_kipu=p1['penny_or_kipu'], RD=p1['RD'], 
-        convolutional = p1['convolutional'], paralel=p1['paralel']
+        mlp_hidden_size=p1['mlp_size'], dropout=p1['dropout'], channels_last=False
     )
-    print('\nTraining first model for majority class...')
+
+    
     # Train
-    test_auc1, test_acc1, val_auc1, val_acc1, params1 = qpctorch.training.train_and_evaluate(
-        model1, train_majority_dl, val_majority_dl, test_majority_dl, num_classes=2,
-        learning_rate=p1['learning_rate'], num_epochs=N, device=device, mapping=False,
+    test_mse, val_mse, val_auc1, val_acc1, params1 = qpctorch.training.train_and_evaluate(
+        model1, train_dl, val_dl, test_dl, num_classes=7,
+        learning_rate=p1['learning_rate'], num_epochs=N1, device=device, mapping=False,
         res_folder=str(save_path), hidden_size=p1['hidden_size'], dropout=p1['dropout'],
         num_heads=p1['num_head'], patch_size=p1['patch_size'], num_transf=p1['num_transf'],
         mlp=p1['mlp_size'], wd=p1['weight_decay'], patience= p1['patience'], scheduler_factor= p1['scheduler_factor']
     )
 
-    print(f"\nMajority class training completed succesfully.\nTest AUC (first step): {test_auc1:.2f}, Test Accuracy (first step): {test_acc1:.2f}")
+    print(f"\nAutoencoder training completed succesfully.\nTest MSE (first step): {test_mse:.2f}")
 
     # Create second model for the second step
     model2 = qpctorch.quantum.VisionTransformer(
