@@ -8,33 +8,51 @@ import numbers
 # - https://github.com/rdisipio/qtransformer/blob/main/qtransformer.py
 # - https://github.com/google-research/vision_transformer/blob/main/vit_jax/models_vit.py
 
-class MultiheadSelfAttention(nn.Module):
-        def __init__(self, embed_dim, num_heads, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, RBF_similarity = False, tensor_dimension = 2):
-            super().__init__()
-            assert embed_dim % num_heads == 0, f"Embedding dimension ({embed_dim}) should be divisible by number of heads ({num_heads})"
+class NMultiheadSelfAttention(nn.Module):
+    def __init__(
+        self,
+        embed_dim,
+        num_heads,
+        N=2,  # Order of multilinear form
+        dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
+        RBF_similarity='none',
+    ):
+        super().__init__()
+        assert embed_dim % num_heads == 0, f"Embedding dim {embed_dim} must be divisible by num_heads {num_heads}"
 
-            self.embed_dim = embed_dim
-            self.num_heads = num_heads
-            self.head_dim = embed_dim // num_heads
-            self.tensor_dimension = tensor_dimension
-            assert RBF_similarity == 'none' or RBF_similarity == 'quantum' or RBF_similarity == 'linear' or (isinstance(RBF_similarity, numbers.Real) and 0 < RBF_similarity <= 1), f"RBF_similarity must be set to 'none', 'quantum', 'linear' or a float between 0 and 1, but got {RBF_similarity}"
-            self.RBF_similarity = RBF_similarity
-            print(f'Setting up multihead self-attention with RBF_similarity: {self.RBF_similarity}')
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.N = N
+        self.RBF_similarity = RBF_similarity
 
-            if self.RBF_similarity == 'quantum':
-                self.quantum_ponderation = QuantumLayer(num_qubits=2, entangle= True, trainBool= True, graph= 'chain' )
-            elif self.RBF_similarity == 'linear':
-                self.ponderation_param = nn.Parameter(torch.tensor(0.0))  # initialized at 0 → sigmoid = 0.5
-    
-            print('Started a MutliheadSelfAttention layer with embed_dim:', embed_dim, 'num_heads:', num_heads, 'head_dim:', self.head_dim, 'RBF_similarity:', self.RBF_similarity)
+        if self.N < 2:
+            raise ValueError("N (order of multilinear form) must be at least 2.")
+        elif self.N > 2 and self.RBF_similarity != 'none':
+            raise ValueError("RBF similarity only implemented for N=2.")
 
-            self.q_proj = nn.Linear(embed_dim, embed_dim)
-            self.k_proj = nn.Linear(embed_dim, embed_dim)
-            self.v_proj = nn.Linear(embed_dim, embed_dim)
-            self.dropout = nn.Dropout(dropout['embedding_attn'])
-            self.o_proj = nn.Linear(embed_dim, embed_dim)
+        assert (
+            RBF_similarity in ['none', 'quantum', 'linear']
+            or (isinstance(RBF_similarity, numbers.Real) and 0 < RBF_similarity <= 1)
+        ), f"Invalid RBF_similarity: {RBF_similarity}"
 
-        def rank_patches_by_attention(attn: torch.Tensor) -> torch.Tensor:
+
+        if self.RBF_similarity == 'quantum':
+            self.quantum_ponderation = QuantumLayer(num_qubits=2, entangle=True, trainBool=True, graph='chain')
+        elif self.RBF_similarity == 'linear':
+            self.ponderation_param = nn.Parameter(torch.tensor(0.0))
+
+        # One projection per tensor dimension
+        self.projections = nn.ModuleList([nn.Linear(embed_dim, embed_dim) for _ in range(N)])
+
+        self.v_proj = nn.Linear(embed_dim, embed_dim)  # Dedicated value projection
+        self.o_proj = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout['embedding_attn'])
+
+        # Learnable N-way tensor for multilinear attention
+        self.A = nn.Parameter(torch.randn(*(self.N * (self.head_dim,))))  # (D, D, ..., D)
+
+    def rank_patches_by_attention(attn: torch.Tensor) -> torch.Tensor:
             """
             Ranks image patches by the total attention they receive.
 
@@ -51,29 +69,59 @@ class MultiheadSelfAttention(nn.Module):
 
             return sorted_indices
 
+    def forward(self, x):
+        B, S, E = x.shape
+        assert E == self.embed_dim
 
+        # compute the N projections: each proj -> (B, S, H, D) then transpose to (B, H, S, D)
+        proj_x = [
+            proj(x).view(B, S, self.num_heads, self.head_dim).transpose(1, 2)  # -> (B, H, S, D)
+            for proj in self.projections
+        ]
 
-        def forward(self, x):
-            batch_size, seq_len, embed_dim = x.shape
-            # x.shape = (batch_size, seq_len, embed_dim)
-            assert embed_dim == self.embed_dim, f"Input embedding dimension ({embed_dim}) should match layer embedding dimension ({self.embed_dim})"
+        # build einsum string:
+        # A has indexes a0 a1 ... a_{N-1}
+        # projection n has subscript "b h token_n letter_n" where token_n is:
+        #   - 'i' for mode 0 (query axis, kept)
+        #   - 'j' for mode 1 (key axis, kept)
+        #   - 's' for modes 2..N-1 (context axes, summed/marginalized)
+        #
+        # Result should be 'b h i j'
+        # pools of letters
+        tokens = list("ijk")  # token positions
+        embeds = list("acdefguvwxyzlmnopqrst")  # embedding dims (avoid b,h,i,j,k,... collisions)
 
-            q, k, v = [
-                proj(x).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-                for proj, x in zip([self.q_proj, self.k_proj, self.v_proj], [x, x, x])
-            ]
+        assert self.N <= len(embeds), f"N too large, max {len(embeds)}"
+        
+        # subscripts for A (the N-way tensor)
+        A_sub = "".join(embeds[:self.N])  # e.g. "abc" for N=3
+        
+        proj_subs = []
+        for n in range(self.N):
+            token = tokens[n] if n < 2 else tokens[2]  # first two → i,j ; rest → s (context)
+            dim = embeds[n]                            # unique embedding letter
+            proj_subs.append(f"bh{token}{dim}")
+        
+        # result: always bhij (standard 2D attention map)
+        einsum_str = f"{A_sub}," + ",".join(proj_subs) + "->bhij"
 
-            # Compute scaled dot-product attention
-            qk_dot = q @ k.transpose(-2, -1)
+        # Example N=3: 'acd,bhia,bhjc,bhkd->bhij'
 
-            attn_logits = ( qk_dot / (self.head_dim ** 0.5))
-            # attn_logits.shape = (batch_size, num_heads, seq_len, seq_len)
-            attn = attn_logits.softmax(dim=-1)
-            # attn.shape = (batch_size, num_heads, seq_len, seq_len)
-            attn = self.dropout(attn)
+        # execute einsum, resulting shape -> (B, H, S, S)
+        # (this implicitly sums over the 's' token index for context modes)
+        attn_logits = torch.einsum(einsum_str, self.A, *proj_x)  # (B, H, S, S)
+        print("Einsum string:", einsum_str)  # Example N=3: 'abc,bhia,bhjc,bhsc->bhij' (note bhsc uses token 's' so it will be summed)
+        print("Attention logits shape:", attn_logits.shape)
 
-            if self.RBF_similarity != 'none':
-                if self.tensor_dimension != 2:
+        # scale (similar to standard attention)
+        attn_logits = attn_logits / (self.head_dim ** 0.5)
+
+        # softmax over keys (j) to get attention weights per query i
+        attn = torch.softmax(attn_logits, dim=-1)
+        attn = self.dropout(attn)
+
+        if self.RBF_similarity != 'none':
+                if self.N != 2:
                     raise ValueError("RBF similarity is only implemented for standard 2D tensors products (Query and Key) ")
                 # Compute RBF similarity
                 if self.RBF_similarity == 'quantum':
@@ -85,8 +133,8 @@ class MultiheadSelfAttention(nn.Module):
                     ponderators = torch.stack([1 - sigmoid_val, sigmoid_val])
 
                 # promote to float32 for stability
-                q32 = q.float()
-                k32 = k.float()
+                q32 = proj_x[0].float()
+                k32 = proj_x[1].float()
 
                 q_norm = (q32 ** 2).sum(dim=-1, keepdim=True)            # (B,H,S,1)
                 k_norm = (k32 ** 2).sum(dim=-1, keepdim=True).transpose(-2, -1)  # (B,H,1,S)
@@ -120,16 +168,18 @@ class MultiheadSelfAttention(nn.Module):
                 weight_sum = ponderators[0] + ponderators[1]
                 attn = (ponderators[0] * attn + ponderators[1] * attn_RBF) / (weight_sum + 1e-7)
 
+        # compute values using dedicated v_proj (so values are independent of mode projections)
+        v = self.v_proj(x).view(B, S, self.num_heads, self.head_dim).transpose(1, 2)  # (B,H,S,D)
 
-            # Compute output
-            values = attn @ v
-            # values.shape = (batch_size, num_heads, seq_len, head_dim)
-            values = values.transpose(1, 2).reshape(batch_size, seq_len, embed_dim)
-            # values.shape = (batch_size, seq_len, embed_dim)
-            x = self.o_proj(values)
-            # x.shape = (batch_size, seq_len, embed_dim)
+        # weighted sum: (B,H,S,D) = sum_j attn[b,h,i,j] * v[b,h,j,d]
+        values = torch.einsum("bhij,bhjd->bhid", attn, v)
 
-            return x, attn
+        # reshape back to (B, S, E)
+        values = values.transpose(1, 2).reshape(B, S, E)
+
+        out = self.o_proj(values)
+
+        return out, attn
 
 class FeedForward(nn.Module):
     def __init__(self, hidden_size, mlp_hidden_size, hidden_size_out , quantum = True, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
@@ -197,7 +247,7 @@ class FeedForward(nn.Module):
         return x
 
 class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
-    def __init__(self, hidden_size, num_heads, mlp_hidden_size, hidden_size_out, quantum_mlp = True, RBF_similarity= False, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
+    def __init__(self, hidden_size, num_heads, mlp_hidden_size, hidden_size_out, attention_N = 2, quantum_mlp = True, RBF_similarity= False, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
                     attention_selection="filter", train_q = False, entangle = True, q_stride = 4, connectivity = 'chain', RD = 1, img_size = 28, patch_size = 4):
         super().__init__()
 
@@ -206,9 +256,10 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
         self.train_q = train_q
         self.RBF_similarity = RBF_similarity
         self.dropout = dropout
+        self.Attention_N = Attention_N
         # Attention components
         self.attn_norm = nn.LayerNorm(hidden_size)
-        self.attn = MultiheadSelfAttention(hidden_size, num_heads, dropout, self.RBF_similarity)
+        self.attn = NMultiheadSelfAttention(embed_dim = hidden_size, num_heads = num_heads, N=Attention_N, dropout = dropout, self.RBF_similarity)
         self.attn_dropout = nn.Dropout(dropout['after_attn'])
         self.hidden_size_out = hidden_size_out
         self.RD = RD
@@ -241,7 +292,7 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
         if self.attention_selection != "none":
 
             # Rank patches by attention
-            attn_indices = MultiheadSelfAttention.rank_patches_by_attention(attn_map)
+            attn_indices = NMultiheadSelfAttention.rank_patches_by_attention(attn_map)
             sel_indices = attn_indices[:, :self.q_lr]       # High-attention patches
             normal_indices = attn_indices[:, self.q_lr:]      # Remaining patches
 
@@ -292,7 +343,7 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
 
 
 class VisionTransformer(nn.Module):
-    def __init__(self, img_size, num_channels, num_classes, patch_size, hidden_size, num_heads, num_transformer_blocks, mlp_hidden_size, 
+    def __init__(self, img_size, num_channels, num_classes, patch_size, hidden_size, num_heads, num_transformer_blocks, mlp_hidden_size, Attention_N = 2,
                     quantum_mlp = False, RBF_similarity = 'none', quantum_classification = False, dropout= {'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
                     channels_last=False, RD = 1, attention_selection = 'filter', 
                     paralel = 1, train_q = False, entangle = True, q_stride = 1, connectivity = 'chain'
@@ -311,7 +362,7 @@ class VisionTransformer(nn.Module):
         self.RD = RD
         self.paralel = paralel
         self.num_transformer_blocks = num_transformer_blocks
-        
+        self.Attention_N = Attention_N
         self.attention_selection = attention_selection
         self.starting_dim = num_channels * patch_size ** 2
         self.dropout_values = dropout
@@ -345,7 +396,8 @@ class VisionTransformer(nn.Module):
 
         
         # Transformer blocks with attention selection
-        self.transformer_blocks = nn.ModuleList( [nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = self.quantum_mlp,
+        self.transformer_blocks = nn.ModuleList( [nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , 
+                                                                                        Attention_N = self.Attention_N, quantum_mlp = self.quantum_mlp,
                                                                                         RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
                                                                                         attention_selection = self.attention_selection,
                                                                                         train_q = self.train_q, entangle = self.entangle, q_stride = self.q_stride, connectivity = self.connectivity)
@@ -447,7 +499,7 @@ class Decoder(nn.Module):
     
 class AutoEnformer(nn.Module):
             def __init__(self, img_size, num_channels, patch_size, hidden_size, num_heads, num_transformer_blocks, RBF_similarity ,mlp_hidden_size,
-                              dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, channels_last=False, attention_selection='none', RD=1,
+                              Attention_N = 2, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, channels_last=False, attention_selection='none', RD=1,
                               q_stride = 1):
                 super(AutoEnformer, self).__init__()
 
@@ -456,6 +508,11 @@ class AutoEnformer(nn.Module):
                 self.trainlosslist = []
                 self.vallosslist = []
                 
+                self.num_transformer_blocks = num_transformer_blocks
+                self.hidden_size = hidden_size
+                self.num_heads = num_heads
+                self.mlp_hidden_size = mlp_hidden_size
+                self.Attention_N = 
                 self.attention_selection = attention_selection
                 self.starting_dim = num_channels * patch_size ** 2
                 self.dropout_values = dropout
@@ -478,13 +535,15 @@ class AutoEnformer(nn.Module):
                 self.pos_embedding = nn.Parameter(torch.randn(1, num_steps, hidden_size) * 0.02)
                 self.dropout = nn.Dropout(self.dropout_values['embedding_pos'])
 
-                self.encoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = False,
+                self.encoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(self.hidden_size // self.RD**i, self.num_heads, self.mlp_hidden_size, self.hidden_size // self.RD**(i + 1) , 
+                                                                                                    Attention_N = self.Attention_N , quantum_mlp = False,
                                                                                                     RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
                                                                                                     attention_selection = 'none',
                                                                                                     train_q = False, entangle = False, q_stride = self.q_stride )
                                                         for i in range(num_transformer_blocks)]) 
                 
-                self.decoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , quantum_mlp = False,
+                self.decoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(self.hidden_size // self.RD**i, self.num_heads, self.mlp_hidden_size, self.hidden_size // self.RD**(i + 1) ,
+                                                                                            Attention_N = self.Attention_N , quantum_mlp = False,
                                                                                             RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
                                                                                             attention_selection = 'none',
                                                                                             train_q = False, entangle = False, q_stride = self.q_stride )
@@ -579,7 +638,7 @@ class DeViT(nn.Module):
 
                 self.vit = VisionTransformer(
                     img_size=shape[-1], num_channels=shape[0], num_classes=num_classes,
-                    patch_size=p['patch_size'], hidden_size=shape[0] * p['patch_size']**2, num_heads=p['num_head'],
+                    patch_size=p['patch_size'], hidden_size=shape[0] * p['patch_size']**2, num_heads=p['num_head'], Attention_N = p['Attention_N'],
                     num_transformer_blocks=p['num_transf'], attention_selection='none', RBF_similarity = 'none',
                     mlp_hidden_size=p['mlp_size'], quantum_mlp = False, dropout = p['dropout'], channels_last=False, entangle=False, quantum_classification = False,
                     paralel = p['paralel'], RD = p['RD'], train_q = False, q_stride = p['q_stride'], connectivity = 'chain'
