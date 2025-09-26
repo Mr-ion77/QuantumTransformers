@@ -20,14 +20,14 @@ N2 = 150  # Number of epochs for the second step
 
 # Hyperparams
 p1 = {
-    'learning_rate': 0.001, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
-    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
+    'learning_rate': 0.001, 'hidden_size': 49*3, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
+    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 7, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
     'connectivity': 'king', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1 , 'RBF_similarity': 'none'  # No early stopping
 }
 
 p2 = {
-    'learning_rate': 0.001, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.1, 'after_attn': 0.05, 'feedforward': 0.05, 'embedding_pos': 0.05},
-    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
+    'learning_rate': 0.001, 'hidden_size': 49*3, 'dropout': {'embedding_attn': 0.1, 'after_attn': 0.05, 'feedforward': 0.05, 'embedding_pos': 0.05},
+    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 7, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
     'paralel': 2, 'patience': -1, 'scheduler_factor': 0.9995, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
 }
 
@@ -88,15 +88,15 @@ for idx in range(50):
             res_folder=str(save_path), hidden_size=p1['hidden_size'], dropout=p1['dropout'],
             num_heads=p1['num_head'], patch_size=p1['patch_size'], num_transf=p1['num_transf'],
             mlp=p1['mlp_size'], wd=p1['weight_decay'], patience= p1['patience'], scheduler_factor= p1['scheduler_factor'], autoencoder=True
-        )
+        ) # type: ignore
 
         print(f"\nAutoencoder training completed succesfully.\nTest MSE (first step): {test_mse:.2f}")
 
         # Prepare datasets for the second step: get latent representations for each dataset and transform them into a new dataloader
         DataLoaders = [train_dl, val_dl, test_dl]
         LatentDatasetsTensors = []
-        QuantumLayer = qpctorch.quantum.pennylane_backend.QuantumLayer(num_qubits = p1['mlp_size'], entangle = p1['entangle'], graph = p1['connectivity']) if p1['quantum'] else torch.nn.Identity()
-        print(f"Current information about the Quantum Layer: {QuantumLayer}")
+        QuantumLayer = qpctorch.quantum.pennylane_backend.QuantumLayer(num_qubits = p1['mlp_size'], entangle = p1['entangle'], graph = p1['connectivity']) if p1['quantum'] else torch.nn.Identity() # type: ignore
+        print(f"Current information about the Quantum Layer: {QuantumLayer}") # type: ignore                                                
         for dl in DataLoaders:
             all_latents = []
             all_labels = []
@@ -133,7 +133,7 @@ for idx in range(50):
             res_folder=str(save_path), hidden_size=p2['hidden_size'], dropout=p2['dropout'],
             num_heads=p2['num_head'], patch_size=p2['patch_size'], num_transf=p2['num_transf'],
             mlp=p2['mlp_size'], wd=p2['weight_decay'], patience= p2['patience'], scheduler_factor=p2['scheduler_factor'], autoencoder=False
-        )
+        ) # type: ignore
 
         
         # Save results
@@ -152,7 +152,7 @@ for idx in range(50):
         History_df = pd.read_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv')
 
         plt.figure(figsize=(10, 6))
-        plt.boxplot([History_df['val_auc'], History_df['test_auc']], labels=['Validation AUC', 'Test AUC'])
+        plt.boxplot([History_df['val_auc'], History_df['test_auc']], labels=['Validation AUC', 'Test AUC']) # type: ignore
         plt.title('Validation and Test AUC Distribution')
         plt.ylabel('AUC')
         plt.grid(axis='y')
