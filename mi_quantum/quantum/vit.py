@@ -21,6 +21,23 @@ def identity_tensor(d: int, n: int) -> torch.Tensor:
 
         return equal_mask.to(dtype=torch.float32)
 
+def rank_patches_by_attention(attn: torch.Tensor) -> torch.Tensor:
+            """
+            Ranks image patches by the total attention they receive.
+
+            """
+            # Average over heads: (B, T, T)
+            attn_mean = attn.mean(dim=1)
+
+            # Total attention received by each token: sum over the source positions (axis=-2)
+            # attention_received[b, j] = sum over i of attn[b, i, j]
+            attention_received = attn_mean.sum(dim=1)  # shape: (B, T)
+
+            # Sort patches by total attention received, descending
+            sorted_indices = attention_received.argsort(dim=1, descending=True)  # shape: (B, T)
+
+            return sorted_indices
+
 # See:
 # - https://nlp.seas.harvard.edu/annotated-transformer/
 # - https://github.com/rdisipio/qtransformer/blob/main/qtransformer.py
@@ -51,7 +68,7 @@ class NMultiheadSelfAttention(nn.Module):
 
         assert (
             RBF_similarity in ['none', 'quantum', 'linear']
-            or (isinstance(RBF_similarity, numbers.Real) and 0 < RBF_similarity <= 1)
+            or (isinstance(RBF_similarity, numbers.Real) and 0 < RBF_similarity <= 1)  # type: ignore
         ), f"Invalid RBF_similarity: {RBF_similarity}"
 
 
@@ -73,23 +90,6 @@ class NMultiheadSelfAttention(nn.Module):
         else:
             self.register_buffer('A_identity', identity_tensor(d=self.head_dim, n=2))
     
-
-    def rank_patches_by_attention(attn: torch.Tensor) -> torch.Tensor:
-            """
-            Ranks image patches by the total attention they receive.
-
-            """
-            # Average over heads: (B, T, T)
-            attn_mean = attn.mean(dim=1)
-
-            # Total attention received by each token: sum over the source positions (axis=-2)
-            # attention_received[b, j] = sum over i of attn[b, i, j]
-            attention_received = attn_mean.sum(dim=1)  # shape: (B, T)
-
-            # Sort patches by total attention received, descending
-            sorted_indices = attention_received.argsort(dim=1, descending=True)  # shape: (B, T)
-
-            return sorted_indices
 
     def forward(self, x):
         B, S, E = x.shape
@@ -268,7 +268,7 @@ class FeedForward(nn.Module):
         return x
 
 class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
-    def __init__(self, hidden_size, num_heads, mlp_hidden_size, hidden_size_out, Attention_N = 2, quantum_mlp = True, RBF_similarity= False, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
+    def __init__(self, hidden_size, num_heads, mlp_hidden_size, hidden_size_out, Attention_N = 2, quantum_mlp = True, RBF_similarity= 'none', dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
                     attention_selection="filter", train_q = False, entangle = True, q_stride = 4, connectivity = 'chain', RD = 1, img_size = 28, patch_size = 4):
         super().__init__()
 
@@ -280,7 +280,7 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
         self.Attention_N = Attention_N
         # Attention components
         self.attn_norm = nn.LayerNorm(hidden_size)
-        self.attn = NMultiheadSelfAttention(embed_dim = hidden_size, num_heads = num_heads, N=Attention_N, dropout = dropout, RBF_similarity=self.RBF_similarity)
+        self.attn = NMultiheadSelfAttention(embed_dim = hidden_size, num_heads = num_heads, N=Attention_N, dropout = dropout, RBF_similarity= self.RBF_similarity)
         self.attn_dropout = nn.Dropout(dropout['after_attn'])
         self.hidden_size_out = hidden_size_out
         self.RD = RD
@@ -313,7 +313,7 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
         if self.attention_selection != "none":
 
             # Rank patches by attention
-            attn_indices = NMultiheadSelfAttention.rank_patches_by_attention(attn_map)
+            attn_indices = rank_patches_by_attention(attn_map)
             sel_indices = attn_indices[:, :self.q_lr]       # High-attention patches
             normal_indices = attn_indices[:, self.q_lr:]      # Remaining patches
 
@@ -459,7 +459,7 @@ class VisionTransformer(nn.Module):
         for i in range(self.paralel):
             out = x_parallel[i]  # [B, S, D]
             for j in range(self.num_transformer_blocks):
-                out, attn = self.transformer_blocks[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar
+                out, attn = self.transformer_blocks[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
                 attn_maps.append(attn)
 
             out = self.layer_norm(out)         # [B, S, D]
