@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from itertools import product
+import itertools
 from mi_quantum.data import split_dataset_by_label, relabel_dataset
 from mi_quantum.quantum.double_step_classification_vit import DbStpClssViT
 from torch.utils.data import ConcatDataset
@@ -20,14 +21,14 @@ N2 = 150  # Number of epochs for the second step
 
 # Hyperparams
 p1 = {
-    'learning_rate': 0.001, 'hidden_size': 49*3, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
-    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 7, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
+    'learning_rate': 0.00075, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
+    'quantum' : True, 'num_head': 4, 'Attention_N' : 3, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
     'connectivity': 'king', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1 , 'RBF_similarity': 'none'  # No early stopping
 }
 
 p2 = {
-    'learning_rate': 0.001, 'hidden_size': 49*3, 'dropout': {'embedding_attn': 0.1, 'after_attn': 0.05, 'feedforward': 0.05, 'embedding_pos': 0.05},
-    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 7, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
+    'learning_rate': 0.0025, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.1, 'after_attn': 0.05, 'feedforward': 0.05, 'embedding_pos': 0.05},
+    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
     'paralel': 2, 'patience': -1, 'scheduler_factor': 0.9995, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
 }
 
@@ -42,7 +43,7 @@ with open('../QTransformer_Results_and_Datasets/autoenformer_results/current_res
 columns = [
     # 'idx', 'learning_rate', 'hidden_size', 'dropout', 'num_head', 'num_transf', 'mlp_size', 'patch_size',
     # 'weight_decay', 'attention_selection', 'entangle', 'penny_or_kipu', 'RD', 'convolutional', 'paralel', 
-    'q_layer', 'test_mse', 'val_mse', '#params1' , 'test_auc', 'test_acc', 'val_auc', 'val_acc', '#params2'
+    'lr', 'q_layer', 'test_mse', 'val_mse', '#params1' , 'test_auc', 'test_acc', 'val_auc', 'val_acc', '#params2'
 ]
 
 channels_last = False
@@ -54,9 +55,10 @@ df.to_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_res
 for idx in range(50):
     print(f"\n\nPoint {idx}")
 
-    for q_config in [True, False]:
-        p1['quantum'] = q_config
 
+    for q_config, lr in itertools.product([True, False], [0.001, 0.0015, 0.00225, 0.003, 0.004, 0.0055, 0.009]):
+        p1['quantum'] = q_config
+        p2['learning_rate'] = lr
         save_path = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/grid_search{idx}")
         save_path.mkdir(parents=True, exist_ok=True)
 
@@ -119,6 +121,13 @@ for idx in range(50):
         latent_train_dl, latent_val_dl, latent_test_dl, shape2 = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
                                             tensors = LatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
                                             )
+        # Save latent representations datasets
+        if idx == 0:
+            save_path_latent = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/latent_datasets")
+            save_path_latent.mkdir(parents=True, exist_ok=True)
+            torch.save(LatentDatasetsTensors[0], save_path_latent / 'latent_train_dataset.pt')
+            torch.save(LatentDatasetsTensors[1], save_path_latent / 'latent_val_dataset.pt')
+            torch.save(LatentDatasetsTensors[2], save_path_latent / 'latent_test_dataset.pt')
 
         # Create second model for the second step)
 
@@ -139,7 +148,7 @@ for idx in range(50):
         # Save results
         row = {
             'idx': idx, 
-                'q_layer' : p1['quantum'], 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
+                'lr' : p2['learning_rate'], 'q_layer' : p1['quantum'], 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
                 'test_auc': test_auc, 'test_acc': test_acc, 'val_auc': val_auc, 'val_acc': val_acc, '#params2': params2,
                 **p1, **p2
         }
