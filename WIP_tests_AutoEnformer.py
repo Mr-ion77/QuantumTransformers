@@ -62,15 +62,14 @@ dropout_options = [
 # Grid search loop
 for idx in range(50):
     print(f"\n\nPoint {idx}")
-
+    save_path = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/grid_search{idx}")
+    save_path.mkdir(parents=True, exist_ok=True)
 
     for q_config, dropout in itertools.product([True, False], dropout_options):
         p1['quantum'] = q_config
         p2['dropout'] = dropout
-        save_path = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/grid_search{idx}")
-        save_path.mkdir(parents=True, exist_ok=True)
 
-        print('\n')
+        print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layer: {p1["quantum"]}, Dropout for classifier: {dropout}\n')
 
         # Load data
         train_dl, val_dl, test_dl, shape = qpctorch.data.get_medmnist_dataloaders(
@@ -170,7 +169,7 @@ for idx in range(50):
         History_df = pd.read_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv')
 
         plt.figure(figsize=(10, 6))
-        plt.boxplot([History_df['val_auc'], History_df['test_auc']], labels=['Validation AUC', 'Test AUC']) # type: ignore
+        plt.boxplot([History_df['val_auc'], History_df['test_auc']], tick_labels=['Validation AUC', 'Test AUC']) # type: ignore
         plt.title('Validation and Test AUC Distribution')
         plt.ylabel('AUC')
         plt.grid(axis='y')
