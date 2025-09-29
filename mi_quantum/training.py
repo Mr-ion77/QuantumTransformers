@@ -148,7 +148,7 @@ def train_and_evaluate(
     test_dataloader: torch.utils.data.DataLoader, num_classes: int, num_epochs: int, device: torch.device, mapping: bool = False, 
     learning_rate: float = 1e-4, res_folder: str = "results_cc", hidden_size: int = 12, patch_size: int = 4, num_heads: int = 1, 
     dropout: dict = {'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, num_transf: int = 1,
-    mlp: int = 1, wd: float = 0.1, verbose: bool = False, patience : int = -1, scheduler_factor = 0.98, autoencoder = False) -> None:
+    mlp: int = 1, wd: float = 0.1, verbose: bool = False, patience : int = -1, scheduler_factor = 0.98, autoencoder = False, save_reconstructed_images = False) -> None:
     """Trains the given model on the given dataloaders for the given parameters"""
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
@@ -407,6 +407,26 @@ def train_and_evaluate(
             outputs = model(inputs)  # Get only the outputs, not the attentions
             outputs = outputs[0] if isinstance(outputs, tuple) or isinstance(outputs, list) else outputs  # Get only the outputs, not the attentions
 
+            if save_reconstructed_images and autoencoder and epoch == num_epochs - 1:
+                # Guardar las imágenes reconstruidas
+                reconstructed_images = outputs.cpu()
+                original_images = inputs.cpu()
+                batch_size = reconstructed_images.size(0)
+                for i in range(batch_size):
+                    recon_img = reconstructed_images[i]
+                    orig_img = original_images[i]
+
+                    # Normalizar las imágenes al rango [0, 1]
+                    recon_img = (recon_img - recon_img.min()) / (recon_img.max() - recon_img.min())
+                    orig_img = (orig_img - orig_img.min()) / (orig_img.max() - orig_img.min())
+
+                    # Convertir a formato PIL y guardar
+                    recon_pil = Image.fromarray((recon_img.permute(1, 2, 0).numpy() * 255).astype(np.uint8))
+                    orig_pil = Image.fromarray((orig_img.permute(1, 2, 0).numpy() * 255).astype(np.uint8))
+
+                    recon_pil.save(f'{res_folder}/autoencoder_images/reconstructed_image_{i}.png')
+                    orig_pil.save(f'{res_folder}/autoencoder_images/original_image_{i}.png')
+
             if num_classes == 2 and outputs.shape[1] == 2:
                 outputs = outputs[:, 1]
     
@@ -433,18 +453,20 @@ def train_and_evaluate(
             'Predicted Probabilities': y_pred
         })
 
+        print(f"TEST AUC: {test_auc:.2f}%, TEST ACC: {test_acc:.2f}%")
+
     else:
         mse = np.mean((np.array(inputs.cpu()) - np.array(outputs.cpu()))**2, )
         df = pd.DataFrame({
             'Images': images,
             'mse': mse
         })
+
+        print(f"TEST MSE: {mse:.4f}")
+
     df.to_csv(f'{res_folder}/predictions_test_{learning_rate}_{hidden_size}_{dropout}_{num_heads}_{num_transf}_{mlp}_{patch_size}_{wd}.csv', index=False)
     
-    if not autoencoder:
-        print(f"TEST AUC: {test_auc:.2f}%, TEST ACC: {test_acc:.2f}%")
-    else:
-        print(f"TEST MSE: {mse:.4f}")
+        
 
     ## Saving attention maps   
     if mapping:
