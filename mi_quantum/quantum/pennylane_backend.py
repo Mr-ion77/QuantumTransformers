@@ -85,11 +85,11 @@ class QuantumLayer(torch.nn.Module):
             #         theta, phi, rho = weights[qubit*3 : (qubit+1)*3]
             #         qml.U3(theta, phi, rho, wires=qubit)
 
-            # if self.entangle:
-            #     for i, pair in enumerate(self.graph):
-            #         qml.CRX(np.pi/3 if not self.trainBool else weights[num_qubits*3 + i], wires=[pair[0], pair[1]]) 
+            if self.entangle:
+                for i, pair in enumerate(self.graph):
+                     qml.CRX(np.pi/3 if not self.trainBool else weights[num_qubits*3 + i], wires=[pair[0], pair[1]]) 
 
-            qml.StronglyEntanglingLayers(weights, wires=range(num_qubits), ranges = [2])
+            #qml.StronglyEntanglingLayers(weights, wires=range(num_qubits), ranges = [2])
 
             return [qml.expval(qml.PauliZ(i)) for i in range(num_qubits)]
 

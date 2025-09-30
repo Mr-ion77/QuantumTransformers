@@ -310,10 +310,10 @@ def train_and_evaluate(
                         best_threshold = threshold
 
                 extra_string_for_binary = f", with threshold={best_threshold:.2f}" if num_classes == 2 else ""
-                progress_bar.set_postfix_str(f"Loss={val_loss:.3f}, Valid AUC={val_auc:.2f}%, Train AUC={tr_auc:.2f} ||| Valid ACC={best_val_acc:.2f}%, Train ACC={tr_acc:.2f}%")
+                progress_bar.set_postfix_str(f"Val Loss={val_loss:.3f}, Valid AUC={val_auc:.2f}%, Train AUC={tr_auc:.2f} ||| Valid ACC={best_val_acc:.2f}%, Train ACC={tr_acc:.2f}%")
 
             else:
-                progress_bar.set_postfix_str(f"Loss={val_loss:.3f} ||| Train Loss={train_loss:.3f}")
+                progress_bar.set_postfix_str(f"Val Loss={val_loss:.3f} ||| Train Loss={train_loss:.3f}")
 
             model.trainlosslist.append(train_loss) 
             model.vallosslist.append(val_loss) 
@@ -408,6 +408,9 @@ def train_and_evaluate(
             outputs = outputs[0] if isinstance(outputs, tuple) or isinstance(outputs, list) else outputs  # Get only the outputs, not the attentions
 
             if save_reconstructed_images and autoencoder and epoch == num_epochs - 1:
+
+                os.makedirs(f'{res_folder}/autoencoder_images', exist_ok=True)
+
                 # Guardar las imágenes reconstruidas
                 reconstructed_images = outputs.cpu()
                 original_images = inputs.cpu()

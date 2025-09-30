@@ -11,6 +11,7 @@ from mi_quantum.quantum.double_step_classification_vit import DbStpClssViT
 from torch.utils.data import ConcatDataset
 import matplotlib.pyplot as plt
 import json
+import os
 # Config
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
@@ -21,18 +22,20 @@ N2 = 150  # Number of epochs for the second step
 
 # Hyperparams
 p1 = {
-    'learning_rate': 0.00075, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
+    'learning_rate': 1.5e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},
     'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
     'connectivity': 'king', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1 , 'RBF_similarity': 'none'  # No early stopping
 }
 
 p2 = {
-    'learning_rate': 1.5e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.1, 'after_attn': 0.05, 'feedforward': 0.05, 'embedding_pos': 0.05},
+    'learning_rate': 1.5e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},,
     'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
     'paralel': 2, 'patience': -1, 'scheduler_factor': 0.9995, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
 }
 
 # Save dictionary with all the hyperparameters and results in a json file
+
+os.makedirs('../QTransformer_Results_and_Datasets/autoenformer_results/current_results', exist_ok = True)
 
 with open('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/hyperparameters.json', 'w') as f:
     f.write('\nHyperparameters for Autoencoder\n')
@@ -51,12 +54,8 @@ channels_last = False
 df = pd.DataFrame(columns=columns)
 df.to_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=True, index=False)
 
-dropout_options = [
-    {'embedding_attn': 0.1, 'after_attn': 0.1, 'feedforward': 0.1, 'embedding_pos': 0.1},
-    {'embedding_attn': 0.15, 'after_attn': 0.15, 'feedforward': 0.15, 'embedding_pos': 0.15},
-    {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},
-    {'embedding_attn': 0.25, 'after_attn': 0.25, 'feedforward': 0.25, 'embedding_pos': 0.25},
-    {'embedding_attn': 0.3, 'after_attn': 0.3, 'feedforward': 0.3, 'embedding_pos': 0.3},
+filter_options = [
+    'none', 'filter'
 ]
 
 # Grid search loop
@@ -64,12 +63,13 @@ for idx in range(50):
     print(f"\n\nPoint {idx}")
     save_path = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/grid_search{idx}")
     save_path.mkdir(parents=True, exist_ok=True)
+    os.makedirs(save_path / 'autoencoder', exist_ok=True)
 
-    for q_config, dropout in itertools.product([True, False], dropout_options):
+    for q_config, ft in itertools.product([True, False], filter_options):
         p1['quantum'] = q_config
-        p2['dropout'] = dropout
+        p2['attention_selection'] = ft
 
-        print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layer: {p1["quantum"]}, Dropout for classifier: {dropout}\n')
+        print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layer: {p1["quantum"]}, Filter for classifier: {ft}\n')
 
         # Load data
         train_dl, val_dl, test_dl, shape = qpctorch.data.get_medmnist_dataloaders(
@@ -94,7 +94,7 @@ for idx in range(50):
         test_mse, val_mse, params1 = qpctorch.training.train_and_evaluate(
             model1, train_dl, val_dl, test_dl, num_classes=7,
             learning_rate=p1['learning_rate'], num_epochs=N1, device=device, mapping=False,
-            res_folder=str(save_path), hidden_size=p1['hidden_size'], dropout=p1['dropout'],
+            res_folder=str(save_path) + '/autoencoder', hidden_size=p1['hidden_size'], dropout=p1['dropout'],
             num_heads=p1['num_head'], patch_size=p1['patch_size'], num_transf=p1['num_transf'],
             mlp=p1['mlp_size'], wd=p1['weight_decay'], patience= p1['patience'], scheduler_factor= p1['scheduler_factor'], autoencoder=True,
             save_reconstructed_images = True if idx == 0 else False
