@@ -28,7 +28,7 @@ p1 = {
 }
 
 p2 = {
-    'learning_rate': 1.5e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},,
+    'learning_rate': 1.5e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},
     'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
     'paralel': 2, 'patience': -1, 'scheduler_factor': 0.9995, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
 }
@@ -46,7 +46,7 @@ with open('../QTransformer_Results_and_Datasets/autoenformer_results/current_res
 columns = [
     # 'idx', 'learning_rate', 'hidden_size', 'dropout', 'num_head', 'num_transf', 'mlp_size', 'patch_size',
     # 'weight_decay', 'attention_selection', 'entangle', 'penny_or_kipu', 'RD', 'convolutional', 'paralel', 
-    'lr', 'q_layer', 'test_mse', 'val_mse', '#params1' , 'test_auc', 'test_acc', 'val_auc', 'val_acc', '#params2'
+    'idx', 'filter', 'q_layer', 'test_mse', 'val_mse', '#params1' , 'test_auc', 'test_acc', 'val_auc', 'val_acc', '#params2'
 ]
 
 channels_last = False
@@ -156,7 +156,7 @@ for idx in range(50):
         # Save results
         row = {
             'idx': idx, 
-                'lr' : p2['learning_rate'], 'q_layer' : p1['quantum'], 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
+                'filter' : p2['attention_selection'], 'q_layer' : p1['quantum'], 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
                 'test_auc': test_auc, 'test_acc': test_acc, 'val_auc': val_auc, 'val_acc': val_acc, '#params2': params2,
                 **p1, **p2
         }
