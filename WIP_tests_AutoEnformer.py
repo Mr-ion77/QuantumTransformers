@@ -54,8 +54,8 @@ channels_last = False
 df = pd.DataFrame(columns=columns)
 df.to_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=True, index=False)
 
-filter_options = [
-    'none', 'filter'
+lr_options = [
+    9e-5, 5e-4, 1e-3, 1.5e-3, 1e-2, 1.5e-2, 1e-1
 ]
 
 # Grid search loop
@@ -65,11 +65,11 @@ for idx in range(50):
     save_path.mkdir(parents=True, exist_ok=True)
     os.makedirs(save_path / 'autoencoder', exist_ok=True)
 
-    for q_config, ft in itertools.product([True, False], filter_options):
+    for q_config, lr in itertools.product([True], lr_options):
         p1['quantum'] = q_config
-        p2['attention_selection'] = ft
+        p1['learning_rate'] = lr
 
-        print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layer: {p1["quantum"]}, Filter for classifier: {ft}\n')
+        print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layer: {p1["quantum"]}, lr for autoencoder: {lr}\n')
 
         # Load data
         train_dl, val_dl, test_dl, shape = qpctorch.data.get_medmnist_dataloaders(
