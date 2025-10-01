@@ -482,6 +482,8 @@ class Encoder(nn.Module):
                         super(Encoder, self).__init__()
                         self.encoder_layers = encoder_layers
                         self.dropout_pos = dropout_pos
+                        self.paralel = len(self.encoder_layers)
+                    self.num_transformer_blocks = len(self.encoder_layers[0])
 
 
                     def forward(self, x, pos_embedding):
@@ -489,46 +491,77 @@ class Encoder(nn.Module):
                         
                         x += pos_embedding[:, :(x.shape[1])]
                         out = self.dropout_pos(x)
-                        
+                        # Repeat x for each parallel branch
+                        x_parallel = x.unsqueeze(0).repeat(self.paralel, 1, 1, 1)  # [P, B, S, D]
 
-                        for layer in self.encoder_layers:
-                            
-                            out, _ = layer(out)
+                        last_layers_outputs = []
+                        outputs = []
+
+                        for i in range(self.paralel):
+                            out = x_parallel[i]  # [B, S, D]
+
+                            for j in range(self.num_transformer_blocks):
+                                out, _ = self.transformer_blocks[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
     
                             if type(out) != torch.Tensor:
                                 raise ValueError("The output is not a tensor.")
                             
                         if type(out) != torch.Tensor:
                             raise ValueError("The output is not a tensor.")
-                        return out  # Shape: (paralel, batch_size, num_patches + 1, hidden_size)
+
+                        return torch.stack(outputs, dim = 0)  # Shape: (paralel, batch_size, num_patches + 1, hidden_size)
 
 class Decoder(nn.Module):
-    def __init__(self, decoder_layers):
+    def __init__(self, decoder_layers, mlp_hidden_size, hidden_size):
         super(Decoder, self).__init__()
         self.decoder_layers = decoder_layers
+        self.paralel = len(self.decoder_layers)
+        self.num_transformer_blocks = len(self.decoder_layers[0])
+        self.mix_paralels_info = nn.Linear(self.paralel * mlp_hidden_size, hidden_size)
 
 
     def forward(self, z):
         outputs = []
         # Pass the latent representation through each decoder block
-        out = z
-        for layer in self.decoder_layers:
-            out, _ = layer(out)
+        last_layers_outputs = []
+        outputs = []
+
+        for i in range(self.paralel):
+            out = z[i]  # [B, S, D]
+
+            for j in range(self.num_transformer_blocks - 1):
+                out, _ = self.transformer_blocks[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
+            
+            last_layer = self.transformer_blocks[i][-1]
+            attn_input = last_layer.attn_norm(out)
+            attn_output, attn_map = last_layer.attn(attn_input)
+            attn_output = last_layer.attn_dropout(attn_output)
+            out = out + attn_output
+
+            y = last_layer.mlp_norm(out)
+            mlp_out = last_layer.mlp_sel.fc1(y)
+            mlp_out = last_layer.mlp_sel.vqc(mlp_out)
+            mlp_out = mlp_out.to(y.device)  # Ensure the output is on the same device as the input
+            mlp_out = last_layer.mlp_sel.dropout(mlp_out)
+            outputs.append( last_layer.mlp_sel.gelu(mlp_out) ) # Here shape is [B, S, mlp_hidden_size]
+        
+        pre_mixing_paralel_info = torch.cat(outputs, dim = -1) # Here shape is [B, S, mlp_hidden_size * paralel]
+        mixed_out = self.mix_paralels_info(pre_mixing_paralel_info)
 
         # Concatenate outputs from all parallel branches
-        return out
+        return mixed_out
     
 class AutoEnformer(nn.Module):
             def __init__(self, img_size, num_channels, patch_size, hidden_size, num_heads, num_transformer_blocks, RBF_similarity ,mlp_hidden_size,
                               Attention_N = 2, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, channels_last=False, attention_selection='none', RD=1,
-                              q_stride = 1):
+                              q_stride = 1, paralel = 1):
                 super(AutoEnformer, self).__init__()
 
                 self.channels_last = channels_last
                 self.RD = RD
                 self.trainlosslist = []
                 self.vallosslist = []
-                
+                self.paralel = paralel
                 self.num_transformer_blocks = num_transformer_blocks
                 self.hidden_size = hidden_size
                 self.num_heads = num_heads
@@ -556,22 +589,22 @@ class AutoEnformer(nn.Module):
                 self.pos_embedding = nn.Parameter(torch.randn(1, num_steps, hidden_size) * 0.02)
                 self.dropout = nn.Dropout(self.dropout_values['embedding_pos'])
 
-                self.encoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(self.hidden_size // self.RD**i, self.num_heads, self.mlp_hidden_size, self.hidden_size // self.RD**(i + 1) , 
+                self.encoder_layers = nn.ModuleList( [nn.ModuleList ([TransformerBlock_Attention_Chosen_QMLP(self.hidden_size // self.RD**i, self.num_heads, self.mlp_hidden_size, self.hidden_size // self.RD**(i + 1) , 
                                                                                                     Attention_N = self.Attention_N , quantum_mlp = False,
                                                                                                     RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
                                                                                                     attention_selection = 'none',
                                                                                                     train_q = False, entangle = False, q_stride = self.q_stride )
-                                                        for i in range(num_transformer_blocks)]) 
+                                                        for i in range(self.num_transformer_blocks)])  for j in range(self.paralel) ] )
                 
-                self.decoder_layers = nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(self.hidden_size // self.RD**i, self.num_heads, self.mlp_hidden_size, self.hidden_size // self.RD**(i + 1) ,
+                self.decoder_layers = nn.ModuleList( [nn.ModuleList ([TransformerBlock_Attention_Chosen_QMLP(self.hidden_size // self.RD**i, self.num_heads, self.mlp_hidden_size, self.hidden_size // self.RD**(i + 1) ,
                                                                                             Attention_N = self.Attention_N , quantum_mlp = False,
                                                                                             RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
                                                                                             attention_selection = 'none',
                                                                                             train_q = False, entangle = False, q_stride = self.q_stride )
-                                                        for i in range(num_transformer_blocks, 0, -1) ]) 
+                                                        for i in range(self.num_transformer_blocks, 0, -1) ]) for j in range(self.paralel) ] )
                                         
                 self.Encoder = Encoder(self.encoder_layers, self.dropout)
-                self.Decoder = Decoder(self.decoder_layers)
+                self.Decoder = Decoder(self.decoder_layers, self.mlp_hidden_size, self.hidden_size)
 
             def get_latent_representation(self, img):
 
@@ -587,21 +620,33 @@ class AutoEnformer(nn.Module):
                 x += self.pos_embedding[:, :(x.shape[1])]
                 out = self.dropout(x)
                 
-                for layer in self.encoder_layers[:-1]: # Exclude the last layer to get latent representations
-                    out, _ = layer(out)
+                # Repeat x for each parallel branch
+                x_parallel = x.unsqueeze(0).repeat(self.paralel, 1, 1, 1)  # [P, B, S, D]
 
-                last_layer = self.encoder_layers[-1]
-                attn_input = last_layer.attn_norm(out)
-                attn_output, attn_map = last_layer.attn(attn_input)
-                attn_output = last_layer.attn_dropout(attn_output)
-                out = out + attn_output
-                y = last_layer.mlp_norm(out)
-                mlp_out = last_layer.mlp_sel.fc1(y)
-                mlp_out = last_layer.mlp_sel.vqc(mlp_out)
-                mlp_out = mlp_out.to(y.device)  # Ensure the output is on the same device as the input
-                mlp_out = last_layer.mlp_sel.dropout(mlp_out)
-                latent_representations = last_layer.mlp_sel.gelu(mlp_out)
+                last_layers_outputs = []
+                outputs = []
+
+                for i in range(self.paralel):
+                    out = x_parallel[i]  # [B, S, D]
+
+                    for j in range(self.num_transformer_blocks - 1):
+                        out, _ = self.transformer_blocks[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
+                    
+                    last_layer = self.transformer_blocks[i][-1]
+                    attn_input = last_layer.attn_norm(out)
+                    attn_output, attn_map = last_layer.attn(attn_input)
+                    attn_output = last_layer.attn_dropout(attn_output)
+                    out = out + attn_output
+
+                    y = last_layer.mlp_norm(out)
+                    mlp_out = last_layer.mlp_sel.fc1(y)
+                    mlp_out = last_layer.mlp_sel.vqc(mlp_out)
+                    mlp_out = mlp_out.to(y.device)  # Ensure the output is on the same device as the input
+                    mlp_out = last_layer.mlp_sel.dropout(mlp_out)
+                    outputs.append( last_layer.mlp_sel.gelu(mlp_out) )
                 
+                latent_representations =  torch.cat(outputs, dim=-1)
+
                 return latent_representations  # Shape: (batch_size, num_patches + 1, mlp_hidden_size)
                     
             
@@ -617,23 +662,23 @@ class AutoEnformer(nn.Module):
                 x = self.patch_embedding(img)
                 x = x.flatten(2).transpose(1, 2)  # (B, N, C) where N is number of patches
                 
-                # 2. Instantiate and run the Encoder
+                # 2.Run the Encoder and get latent representations
 
                 latent_representations = self.Encoder(x, self.pos_embedding)
+
+                # 3. Run the Decoder and recoconstruct original patches
                 
                 reconstructed_patches = self.Decoder(latent_representations)
 
-                # 4. Final Reconstruction              
+                # 4. Final Reconstruction: reshape the tensor so that you get the original image from the patches             
                 
                 # Transpose to get the channel dimension for reshaping
                 reconstructed_patches = reconstructed_patches.transpose(1, 2)
                 
                 # Reshape to a 4D tensor
                 reconstructed_imgs = reconstructed_patches.reshape(img.shape)
-
-                #errors = [ torch.mean((img - recon)**2).item() for recon in reconstructed_imgs ]
                 
-                return reconstructed_imgs#, errors # Return the reconstructed images and the reconstruction errors
+                return reconstructed_imgs  # Return the reconstructed images 
             
 
 class DeViT(nn.Module):

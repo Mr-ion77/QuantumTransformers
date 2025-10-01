@@ -22,7 +22,7 @@ N2 = 150  # Number of epochs for the second step
 
 # Hyperparams
 p1 = {
-    'learning_rate': 1.5e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},
+    'learning_rate': 1e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},
     'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
     'connectivity': 'king', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1 , 'RBF_similarity': 'none'  # No early stopping
 }
@@ -54,9 +54,6 @@ channels_last = False
 df = pd.DataFrame(columns=columns)
 df.to_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=True, index=False)
 
-lr_options = [
-    9e-5, 5e-4, 1e-3, 1.5e-3, 1e-2, 1.5e-2, 1e-1
-]
 
 # Grid search loop
 for idx in range(50):
