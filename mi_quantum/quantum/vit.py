@@ -686,13 +686,13 @@ class DeViT(nn.Module):
                 First, a linear layer adjusts the dimension of the latent representation to match the ViT input size.
                 Then, a standard ViT is applied for classification.
             """
-            def __init__(self, num_classes, p, shape):
+            def __init__(self, num_classes, p, shape, dim_latent):
                 super(DeViT, self).__init__()
 
                 self.num_classes = num_classes
                 self.p = p
                 self.shape = shape
-                self.dimension_adjustment = nn.Linear(p['mlp_size'], shape[0] * p['patch_size']**2)
+                self.dimension_adjustment = nn.Linear(dim_latent, shape[0]* p['patch_size']**2)
 
                 self.trainlosslist = []
                 self.trauclist = []
@@ -704,7 +704,7 @@ class DeViT(nn.Module):
 
                 self.vit = VisionTransformer(
                     img_size=shape[-1], num_channels=shape[0], num_classes=num_classes,
-                    patch_size=p['patch_size'], hidden_size=shape[0] * p['patch_size']**2, num_heads=p['num_head'], Attention_N = p['Attention_N'],
+                    patch_size=p['patch_size'], hidden_size= shape[0]* p['patch_size']**2, num_heads=p['num_head'], Attention_N = p['Attention_N'],
                     num_transformer_blocks=p['num_transf'], attention_selection='none', RBF_similarity = 'none',
                     mlp_hidden_size=p['mlp_size'], quantum_mlp = False, dropout = p['dropout'], channels_last=False, entangle=False, quantum_classification = False,
                     paralel = p['paralel'], RD = p['RD'], train_q = False, q_stride = p['q_stride'], connectivity = 'chain'

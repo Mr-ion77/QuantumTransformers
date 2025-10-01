@@ -136,7 +136,7 @@ for idx in range(50):
 
         # Create second model for the second step)
 
-        model2 = qpctorch.quantum.vit.DeViT(num_classes=7, p = p2, shape = shape)
+        model2 = qpctorch.quantum.vit.DeViT(num_classes=7, p = p2, shape = shape, dim_latent = shape2[-1]) # The shape needed is that of the original images, in this case [3, 28, 28]
 
         print('\nTraining second model: classifier ViT on latent representations\n')
 
