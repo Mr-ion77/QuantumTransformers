@@ -483,7 +483,7 @@ class Encoder(nn.Module):
                         self.encoder_layers = encoder_layers
                         self.dropout_pos = dropout_pos
                         self.paralel = len(self.encoder_layers)
-                    self.num_transformer_blocks = len(self.encoder_layers[0])
+                        self.num_transformer_blocks = len(self.encoder_layers[0])
 
 
                     def forward(self, x, pos_embedding):
@@ -501,8 +501,9 @@ class Encoder(nn.Module):
                             out = x_parallel[i]  # [B, S, D]
 
                             for j in range(self.num_transformer_blocks):
-                                out, _ = self.transformer_blocks[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
-    
+                                out, _ = self.encoder_layers[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
+
+                            outputs.append(out)
                             if type(out) != torch.Tensor:
                                 raise ValueError("The output is not a tensor.")
                             
@@ -530,9 +531,9 @@ class Decoder(nn.Module):
             out = z[i]  # [B, S, D]
 
             for j in range(self.num_transformer_blocks - 1):
-                out, _ = self.transformer_blocks[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
+                out, _ = self.decoder_layers[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
             
-            last_layer = self.transformer_blocks[i][-1]
+            last_layer = self.decoder_layers[i][-1]
             attn_input = last_layer.attn_norm(out)
             attn_output, attn_map = last_layer.attn(attn_input)
             attn_output = last_layer.attn_dropout(attn_output)
@@ -615,7 +616,6 @@ class AutoEnformer(nn.Module):
                 # Create image patches and project them to the hidden size
                 x = self.patch_embedding(img)
                 x = x.flatten(2).transpose(1, 2)  # (B, N, C) where N is number of patches
-
                 # Apply patch and position embeddings, including the class token
                 x += self.pos_embedding[:, :(x.shape[1])]
                 out = self.dropout(x)
@@ -630,9 +630,9 @@ class AutoEnformer(nn.Module):
                     out = x_parallel[i]  # [B, S, D]
 
                     for j in range(self.num_transformer_blocks - 1):
-                        out, _ = self.transformer_blocks[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
+                        out, _ = self.Encoder.encoder_layers[i][j](out)  # [B, S, D], attn: [B, H, S, S] or similar #type: ignore
                     
-                    last_layer = self.transformer_blocks[i][-1]
+                    last_layer = self.Encoder.encoder_layers[i][-1]
                     attn_input = last_layer.attn_norm(out)
                     attn_output, attn_map = last_layer.attn(attn_input)
                     attn_output = last_layer.attn_dropout(attn_output)
@@ -645,9 +645,9 @@ class AutoEnformer(nn.Module):
                     mlp_out = last_layer.mlp_sel.dropout(mlp_out)
                     outputs.append( last_layer.mlp_sel.gelu(mlp_out) )
                 
-                latent_representations =  torch.cat(outputs, dim=-1)
+                latent_representations =  torch.stack(outputs, dim=0)
 
-                return latent_representations  # Shape: (batch_size, num_patches + 1, mlp_hidden_size)
+                return latent_representations  # Shape: (paralel, batch_size, num_patches + 1, mlp_hidden_size)
                     
             
                         
@@ -713,7 +713,7 @@ class DeViT(nn.Module):
                 
             def forward(self, x):  
                 
-                assert x.shape[-1] == self.p['mlp_size'], f"Input feature dimension ({x.shape[-1]}) does not match expected size ({self.p['mlp_size']})"
+                assert x.shape[-1] == self.p['mlp_size']*self.p['paralel'], f"Input feature dimension ({x.shape[-1]}) does not match expected size ({self.p['mlp_size']*self.p['paralel']})"
 
                 x = self.dimension_adjustment(x)  
                 x = x.reshape((x.shape[0],) + self.shape)

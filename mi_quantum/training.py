@@ -516,28 +516,7 @@ def train_and_evaluate(
                 if misclassified:
                     save_attention(pred, images, dir_misclassified_test,patch_size)  # Use attention for misclassified
 
-        #train_dataloader_single = torch.utils.data.DataLoader(train_dataloader.dataset, batch_size=1)
-        #for images, labels, names in train_dataloader_single:
-        #    images, labels = images.to(device), labels.to(device)
-        #    dir = f'{res_folder}/train/class'+str(int(labels))+'/image'+str(int(names)).zfill(4)
-        #    dir_misclassified_train = f'{train_misclassified_dir}/class'+str(int(labels))+'/image'+str(int(names)).zfill(4)
-        #    with torch.no_grad():
-        #        pred = model(images)[0]  # Get both outputs and attentions
-        #        if res_folder == "results_qc" or res_folder == "results_qq":
-        #            images = images.permute(0, 3, 1, 2)
-        #            images = images[:, 0:1, :, :]
-        #        save_attention(pred, images, dir,patch_size)  # Pass attentions
-        #        # Find misclassified samples
-        #        if (num_classes == 2 and pred.shape[1]==2):
-        #            pred2 = pred[:, 1]
-        #        else:
-        #            pred2 = pred
-        #        probs = torch.sigmoid(pred2) if num_classes == 2 else torch.softmax(pred2, dim=1)
-        #        pred2 = [value >= 0.5 for value in probs] if num_classes == 2 else torch.argmax(probs, dim=1)
-        #        misclassified = pred2[0] != labels.squeeze().bool()
-        #        if misclassified:
-        #            save_attention(pred, images, dir_misclassified_train,patch_size)  # Use attention for misclassified
     if not autoencoder:
-        return test_auc, test_acc, best_val_auc, best_val_acc, number_of_parameters
+        return test_auc, test_acc, best_val_auc, best_val_acc, best_train_auc, number_of_parameters
     else:
         return mse, best_val_mse, number_of_parameters

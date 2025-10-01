@@ -7,7 +7,7 @@ from pathlib import Path
 from itertools import product
 import itertools
 from mi_quantum.data import split_dataset_by_label, relabel_dataset
-from mi_quantum.quantum.double_step_classification_vit import DbStpClssViT
+from mi_quantum.quantum.quanvolution import QuantumConv2D
 from torch.utils.data import ConcatDataset
 import matplotlib.pyplot as plt
 import json
@@ -17,20 +17,20 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 B = 256
-N1 = 100  # Number of epochs
+N1 = 150  # Number of epochs
 N2 = 150  # Number of epochs for the second step
 
 # Hyperparams
 p1 = {
-    'learning_rate': 1e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},
-    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
-    'connectivity': 'king', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1 , 'RBF_similarity': 'none'  # No early stopping
+    'learning_rate': 5e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},
+    'quantum' : 'patchwise', 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
+    'paralel' : 2 ,'connectivity': 'king', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.998, 'q_stride': 1 , 'RBF_similarity': 'none'  # No early stopping
 }
 
 p2 = {
-    'learning_rate': 1.5e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.2, 'feedforward': 0.2, 'embedding_pos': 0.2},
-    'quantum' : True, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
-    'paralel': 2, 'patience': -1, 'scheduler_factor': 0.9995, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
+    'learning_rate': 1e-7, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.1, 'after_attn': 0.1, 'feedforward': 0.1, 'embedding_pos': 0.1},
+    'quantum' : False, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
+    'paralel': 2, 'patience': -1, 'scheduler_factor': 0.989, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
 }
 
 # Save dictionary with all the hyperparameters and results in a json file
@@ -46,10 +46,11 @@ with open('../QTransformer_Results_and_Datasets/autoenformer_results/current_res
 columns = [
     # 'idx', 'learning_rate', 'hidden_size', 'dropout', 'num_head', 'num_transf', 'mlp_size', 'patch_size',
     # 'weight_decay', 'attention_selection', 'entangle', 'penny_or_kipu', 'RD', 'convolutional', 'paralel', 
-    'idx', 'filter', 'q_layer', 'test_mse', 'val_mse', '#params1' , 'test_auc', 'test_acc', 'val_auc', 'val_acc', '#params2'
+    'idx', 'lr', 'test_mse', 'val_mse', '#params1' , 'test_auc', 'test_acc', 'val_auc', 'val_acc', '#params2'
 ]
 
-channels_last = False
+channels_last = False           # Set to True if last dimension of datasets tensors match channels dimension
+RepeatAutoencoder = False       # Set to True if you want to train the autoencoder each time for more variability. For a better performance and faster training set to False.
 
 df = pd.DataFrame(columns=columns)
 df.to_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=True, index=False)
@@ -62,86 +63,100 @@ for idx in range(50):
     save_path.mkdir(parents=True, exist_ok=True)
     os.makedirs(save_path / 'autoencoder', exist_ok=True)
 
-    for q_config, lr in itertools.product([True], lr_options):
+    for lr_config, q_config in itertools.product( [5e-5, 7.5e-5, 1e-4, 2.5e-4, 5e-4, 7.5e-4, 1e-3, 2.5e-3, 5e-3, 7.5e-3, 1e-2, 2.5e-2, 5e-2], ['patchwise', 'none'] ):
+        p2['learning_rate'] = lr_config
         p1['quantum'] = q_config
-        p1['learning_rate'] = lr
+        print(f"Quantum process data?:  {p1['quantum']}")
 
-        print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layer: {p1["quantum"]}, lr for autoencoder: {lr}\n')
+        if (idx == 0 and lr_config == 5e-5 and q_config == 'patchwise') or RepeatAutoencoder:
+            print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layer: {p1["quantum"]} and Learning Rate: {p1["learning_rate"]}\n')
 
-        # Load data
-        train_dl, val_dl, test_dl, shape = qpctorch.data.get_medmnist_dataloaders(
-            pixel=28, data_flag='dermamnist', batch_size=B, num_workers=4, pin_memory=True
-        )
+            # Load data
+            train_dl, val_dl, test_dl, shape = qpctorch.data.get_medmnist_dataloaders(
+                pixel=28, data_flag='dermamnist', batch_size=B, num_workers=4, pin_memory=True
+            )
 
-        num_channels = shape[-1] if channels_last else shape[0]
-        img_size = shape[1]  # Assuming square images
+            # Obtain general settings regarding dataset shape
+            num_channels = shape[-1] if channels_last else shape[0]
+            img_size = shape[1]  # Assuming square images
 
-        # Split datasets by label
-        # Model
-        model1 = qpctorch.quantum.vit.AutoEnformer(
-            img_size=img_size, num_channels=num_channels,   # set num_classes as needed
-            patch_size=p1['patch_size'], hidden_size=p1['hidden_size'], num_heads=p1['num_head'],
-            num_transformer_blocks=p1['num_transf'], attention_selection=p1['attention_selection'],
-            mlp_hidden_size=p1['mlp_size'], Attention_N = p1['Attention_N'], dropout=p1['dropout'], 
-            RBF_similarity = p1['RBF_similarity'] ,channels_last=False
-        )
+            # Model
+            model1 = qpctorch.quantum.vit.AutoEnformer(
+                img_size=img_size, num_channels=num_channels,   # set num_classes as needed
+                patch_size=p1['patch_size'], hidden_size=p1['hidden_size'], num_heads=p1['num_head'],
+                num_transformer_blocks=p1['num_transf'], attention_selection=p1['attention_selection'],
+                mlp_hidden_size=p1['mlp_size'], Attention_N = p1['Attention_N'], dropout=p1['dropout'], 
+                paralel = p1['paralel'], RBF_similarity = p1['RBF_similarity'] ,channels_last=False
+            )
 
-        
-        # Train
-        test_mse, val_mse, params1 = qpctorch.training.train_and_evaluate(
-            model1, train_dl, val_dl, test_dl, num_classes=7,
-            learning_rate=p1['learning_rate'], num_epochs=N1, device=device, mapping=False,
-            res_folder=str(save_path) + '/autoencoder', hidden_size=p1['hidden_size'], dropout=p1['dropout'],
-            num_heads=p1['num_head'], patch_size=p1['patch_size'], num_transf=p1['num_transf'],
-            mlp=p1['mlp_size'], wd=p1['weight_decay'], patience= p1['patience'], scheduler_factor= p1['scheduler_factor'], autoencoder=True,
-            save_reconstructed_images = True if idx == 0 else False
-        ) # type: ignore
+            # Train
+            test_mse, val_mse, params1 = qpctorch.training.train_and_evaluate(
+                model1, train_dl, val_dl, test_dl, num_classes=7,
+                learning_rate=p1['learning_rate'], num_epochs=N1, device=device, mapping=False,
+                res_folder=str(save_path) + '/autoencoder', hidden_size=p1['hidden_size'], dropout=p1['dropout'],
+                num_heads=p1['num_head'], patch_size=p1['patch_size'], num_transf=p1['num_transf'],
+                mlp=p1['mlp_size'], wd=p1['weight_decay'], patience= p1['patience'], scheduler_factor= p1['scheduler_factor'], autoencoder=True,
+                save_reconstructed_images = True if idx == 0 else False
+            ) # type: ignore
 
-        print(f"\nAutoencoder training completed succesfully.\nTest MSE (first step): {test_mse:.2f}")
+            print(f"\nAutoencoder training completed succesfully.\nTest MSE (first step): {test_mse:.5f}")
 
-        # Prepare datasets for the second step: get latent representations for each dataset and transform them into a new dataloader
-        DataLoaders = [train_dl, val_dl, test_dl]
-        LatentDatasetsTensors = []
-        QuantumLayer = qpctorch.quantum.pennylane_backend.QuantumLayer(num_qubits = p1['mlp_size'], entangle = p1['entangle'], graph = p1['connectivity']) if p1['quantum'] else torch.nn.Identity() # type: ignore
-        print(f"Current information about the Quantum Layer: {QuantumLayer}") # type: ignore                                                
-        for dl in DataLoaders:
-            all_latents = []
-            all_labels = []
-            all_indices = []
-            for images, labels, indices in dl:
-                images = images.to(device)
-                with torch.no_grad():
-                    latent_representations = QuantumLayer( model1.get_latent_representation(images) )
-                latent_representations = latent_representations.cpu()
+            # Prepare datasets for the second step: get latent representations for each dataset and transform them into a new dataloader
+            DataLoaders = [train_dl, val_dl, test_dl]
+            LatentDatasetsTensors = []
+            if p1['quantum'] == 'patchwise':
+                QuantumLayer = qpctorch.quantum.pennylane_backend.QuantumLayer(num_qubits = p1['mlp_size'], entangle = p1['entangle'], graph = p1['connectivity']) 
+            elif p1['quantum'] == 'none':
+                QuantumLayer = torch.nn.Identity() # type: ignore
+            elif p1['quantum'] != 'quanvolution':
+                raise ValueError(f'"quantum" hyperparameter must be "patchwise", "none" or "quanvolution" but got {p1["quantum"]}')
 
-                all_latents.extend( latent_representations )
-                all_labels.extend( labels )
+            print(f'Quantum configuration is {p1["quantum"]} and so the information about the quantum layer is:')
+            print(f"Current information about the Quantum Layer: {QuantumLayer}") # type: ignore                                
+            for dl in DataLoaders:
+                all_latents = []
+                all_labels = []
+                all_indices = []
+                for images, labels, indices in dl:
+                    images = images.to(device)
+                    with torch.no_grad():
+                        outs = []
+                        for i in range(p1['paralel']):
+                            latent_aux = model1.get_latent_representation(images)
+                            if p1['quantum'] == 'quanvolution':
+                                Quanvolution = QuantumConv2D(patch_size=3, stride=1, padding=0, channels_out = [4], ancilla = 0, graph= 'king')
+                                out.append( Quanvolution( latent_aux[i].unsqueeze(dim = 1) ) )
+                            else:
+                                outs.append( QuantumLayer( latent_aux[i] ) )
+                    latent_representations = torch.cat(outs, dim = -1).cpu()        
 
-            all_latents = torch.stack(all_latents)
-            all_labels = torch.tensor(all_labels)
+                    all_latents.extend( latent_representations )
+                    all_labels.extend( labels )
 
+                all_latents = torch.stack(all_latents)
+                all_labels = torch.tensor(all_labels)
+                LatentDatasetsTensors.append( list(zip(all_latents,all_labels)) )
 
-            LatentDatasetsTensors.append( list(zip(all_latents,all_labels)) )
+            latent_train_dl, latent_val_dl, latent_test_dl, shape2 = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
+                                                tensors = LatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
+                                                )
 
-        latent_train_dl, latent_val_dl, latent_test_dl, shape2 = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                            tensors = LatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
-                                            )
-        # Save latent representations datasets
-        if idx == 0:
-            save_path_latent = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/latent_datasets")
-            save_path_latent.mkdir(parents=True, exist_ok=True)
-            torch.save(LatentDatasetsTensors[0], save_path_latent / 'latent_train_dataset.pt')
-            torch.save(LatentDatasetsTensors[1], save_path_latent / 'latent_val_dataset.pt')
-            torch.save(LatentDatasetsTensors[2], save_path_latent / 'latent_test_dataset.pt')
+            # Save latent representations datasets
+            if idx == 0:
+                save_path_latent = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/latent_datasets")
+                save_path_latent.mkdir(parents=True, exist_ok=True)
+                torch.save(LatentDatasetsTensors[0], save_path_latent / 'latent_train_dataset.pt')
+                torch.save(LatentDatasetsTensors[1], save_path_latent / 'latent_val_dataset.pt')
+                torch.save(LatentDatasetsTensors[2], save_path_latent / 'latent_test_dataset.pt')
 
-        # Create second model for the second step)
+            # Create second model for the second step)
 
         model2 = qpctorch.quantum.vit.DeViT(num_classes=7, p = p2, shape = shape, dim_latent = shape2[-1]) # The shape needed is that of the original images, in this case [3, 28, 28]
 
         print('\nTraining second model: classifier ViT on latent representations\n')
 
         # Train second model
-        test_auc, test_acc, val_auc, val_acc, params2 = qpctorch.training.train_and_evaluate(
+        test_auc, test_acc, val_auc, val_acc, train_auc, params2 = qpctorch.training.train_and_evaluate(
             model2, latent_train_dl, latent_val_dl, latent_test_dl, num_classes=7,
             learning_rate=p2['learning_rate'], num_epochs=N2, device=device, mapping=False,
             res_folder=str(save_path), hidden_size=p2['hidden_size'], dropout=p2['dropout'],
@@ -153,8 +168,8 @@ for idx in range(50):
         # Save results
         row = {
             'idx': idx, 
-                'filter' : p2['attention_selection'], 'q_layer' : p1['quantum'], 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
-                'test_auc': test_auc, 'test_acc': test_acc, 'val_auc': val_auc, 'val_acc': val_acc, '#params2': params2,
+                'lr' : p2['learning_rate'], 'q_layer' : p1['quantum'], 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
+                'test_auc': test_auc, 'test_acc': test_acc, 'val_auc': val_auc, 'val_acc': val_acc, 'train_auc': train_auc,'#params2': params2,
                 **p1, **p2
         }
 
