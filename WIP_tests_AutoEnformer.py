@@ -23,7 +23,7 @@ N2 = 150  # Number of epochs for the second step
 # Hyperparams
 p1 = {
     'learning_rate': 5e-3, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.2, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
-    'quantum' : 'patchwise', 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
+    'quantum' : 'none', 'num_head': 4, 'Attention_N' : 2, 'num_transf': 1, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'none', 'entangle': True,
     'paralel' : 2 ,'connectivity': 'king', 'RD': 1, 'patience': -1, 'scheduler_factor': 0.999, 'q_stride': 1 , 'RBF_similarity': 'none'  # No early stopping
 }
 
@@ -63,11 +63,12 @@ for idx in range(20):
     save_path.mkdir(parents=True, exist_ok=True)
     os.makedirs(save_path / 'autoencoder', exist_ok=True)
 
-    for q_config in ['patchwise', 'none'] :
+    for q_config in ['none'] :
         p1['quantum'] = q_config
         print(f"Quantum process data?:  {p1['quantum']}")
+        quantum = False if p1['quantum'] == 'none' else True 
 
-        if (idx == 0 and q_config == 'patchwise') or RepeatAutoencoder:
+        if (idx == 0) or RepeatAutoencoder:
             print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layer: {p1["quantum"]} and Learning Rate: {p1["learning_rate"]}\n')
 
             # Load data
@@ -102,19 +103,23 @@ for idx in range(20):
 
             # Prepare datasets for the second step: get latent representations for each dataset and transform them into a new dataloader
             DataLoaders = [train_dl, val_dl, test_dl]
-            QuLatentDatasetsTensors = []
+            if quantum:
+                QuLatentDatasetsTensors = []
             NorLatentDatasetsTensors = []
             if p1['quantum'] == 'patchwise':
                 QuantumLayer = qpctorch.quantum.pennylane_backend.QuantumLayer(num_qubits = p1['mlp_size'], entangle = p1['entangle'], graph = p1['connectivity']) 
             elif p1['quantum'] == 'none':
                 QuantumLayer = torch.nn.Identity() # type: ignore
-            elif p1['quantum'] != 'quanvolution':
+            elif p1['quantum'] == 'quanvolution':
+                QuantumLayer = QuantumConv2D(patch_size=3, stride=1, padding=1, channels_out = [4], ancilla = 0, graph= 'king')
+            else:
                 raise ValueError(f'"quantum" hyperparameter must be "patchwise", "none" or "quanvolution" but got {p1["quantum"]}')
 
             print(f'Quantum configuration is {p1["quantum"]} and so the information about the quantum layer is:')
             print(f"Current information about the Quantum Layer: {QuantumLayer}") # type: ignore                                
             for dl in DataLoaders:
-                all_latents_quantum = []
+                if quantum:
+                    all_latents_quantum = []
                 all_latents_normal = []
                 all_labels = []
                 all_indices = []
@@ -127,38 +132,43 @@ for idx in range(20):
                         for i in range(p1['paralel']):
                             
                             if p1['quantum'] == 'quanvolution':
-                                Quanvolution = QuantumConv2D(patch_size=3, stride=1, padding=0, channels_out = [4], ancilla = 0, graph= 'king')
-                                quantum_outs.append( Quanvolution( latent_aux[i].unsqueeze(dim = 1) ) )
-                            else:
+                                quantum_outs.append( QuantumLayer( latent_aux[i].unsqueeze(dim = 1) ) )
+                            elif p1['quantum'] == 'patchwise':
                                 quantum_outs.append( QuantumLayer( latent_aux[i] ) )
+                    if quantum:
+                        quantum_representations = torch.cat(quantum_outs, dim = -1).cpu()        
+                        all_latents_quantum.extend( quantum_representations )
 
-                    quantum_representations = torch.cat(quantum_outs, dim = -1).cpu()        
-                    
-                    all_latents_quantum.extend( quantum_representations )
-                    all_latents_normal.extend( latent_aux.view(quantum_representations.shape) )
+                    all_latents_normal.extend( latent_aux.view( (latent_aux.shape[1],latent_aux.shape[2], -1) ) )
                     all_labels.extend( labels )
 
-                all_latents_quantum = torch.stack(all_latents_quantum)
-                all_latents_normal = torch.stack(all_latents_normal)
                 all_labels = torch.tensor(all_labels)
-                QuLatentDatasetsTensors.append ( list(zip(all_latents_quantum, all_labels)) )
+                all_latents_normal = torch.stack(all_latents_normal)
+                if quantum:
+                    all_latents_quantum = torch.stack(all_latents_quantum)
+                    QuLatentDatasetsTensors.append ( list(zip(all_latents_quantum, all_labels)) )
+
                 NorLatentDatasetsTensors.append( list(zip(all_latents_normal ,all_labels))  )
 
-            qlatent_train_dl, qlatent_val_dl, qlatent_test_dl, shape2 = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                                tensors = QuLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
-                                                )
-
             nlatent_train_dl, nlatent_val_dl, nlatent_test_dl, shape2 = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                                tensors = NorLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
-                                                )
+                                            tensors = NorLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
+                                            )
+            if quantum:
+                qlatent_train_dl, qlatent_val_dl, qlatent_test_dl, shape2 = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
+                                            tensors = QuLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
+                                            )
+                
+            
 
             # Save latent representations datasets
             if idx == 0:
                 save_path_latent = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/latent_datasets")
                 save_path_latent.mkdir(parents=True, exist_ok=True)
-                torch.save(QuLatentDatasetsTensors[0], save_path_latent / 'qlatent_train_dataset.pt')
-                torch.save(QuLatentDatasetsTensors[1], save_path_latent / 'qlatent_val_dataset.pt')
-                torch.save(QuLatentDatasetsTensors[2], save_path_latent / 'qlatent_test_dataset.pt')
+                if quantum:
+                    torch.save(QuLatentDatasetsTensors[0], save_path_latent / 'qlatent_train_dataset.pt')
+                    torch.save(QuLatentDatasetsTensors[1], save_path_latent / 'qlatent_val_dataset.pt')
+                    torch.save(QuLatentDatasetsTensors[2], save_path_latent / 'qlatent_test_dataset.pt')
+
                 torch.save(NorLatentDatasetsTensors[0], save_path_latent / 'nlatent_train_dataset.pt')
                 torch.save(NorLatentDatasetsTensors[1], save_path_latent / 'nlatent_val_dataset.pt')
                 torch.save(NorLatentDatasetsTensors[2], save_path_latent / 'nlatent_test_dataset.pt')
@@ -168,7 +178,7 @@ for idx in range(20):
         model2 = qpctorch.quantum.vit.DeViT(num_classes=7, p = p2, shape = shape, dim_latent = shape2[-1]) # The shape needed is that of the original images, in this case [3, 28, 28]
 
         print('\nTraining second model: classifier ViT on latent representations\n')
-        quantum = False if p1['quantum'] == 'none' else True 
+        
         # Train second model
         test_auc, test_acc, val_auc, val_acc, train_auc, params2 = qpctorch.training.train_and_evaluate(
             model2, qlatent_train_dl if quantum else nlatent_train_dl, qlatent_val_dl if quantum else nlatent_val_dl, 
@@ -191,7 +201,6 @@ for idx in range(20):
         pd.DataFrame([row], columns=columns).to_csv(
             '../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=False, index=False
         )
-
 
         History_df = pd.read_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv')
 

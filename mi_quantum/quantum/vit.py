@@ -202,6 +202,132 @@ class NMultiheadSelfAttention(nn.Module):
 
         return out, attn
 
+class MultiheadSelfAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, RBF_similarity = False, special_cls = False):
+        super().__init__()
+        assert embed_dim % num_heads == 0, f"Embedding dimension ({embed_dim}) should be divisible by number of heads ({num_heads})"
+
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.special_cls = special_cls
+        assert RBF_similarity == 'none' or RBF_similarity == 'quantum' or RBF_similarity == 'linear' or (isinstance(RBF_similarity, numbers.Real) and 0 < RBF_similarity <= 1), f"RBF_similarity must be set to 'none', 'quantum', 'linear' or a float between 0 and 1, but got {RBF_similarity}"
+        self.RBF_similarity = RBF_similarity
+        print(f'Setting up multihead self-attention with RBF_similarity: {self.RBF_similarity}')
+
+        if self.RBF_similarity == 'quantum':
+            self.quantum_ponderation = QuantumLayer(num_qubits=2, entangle= True, trainBool= True, graph= 'chain' )
+        elif self.RBF_similarity == 'linear':
+            self.ponderation_param = nn.Parameter(torch.tensor(0.0))  # initialized at 0 → sigmoid = 0.5
+
+        print('Started a MutliheadSelfAttention layer with embed_dim:', embed_dim, 'num_heads:', num_heads, 'head_dim:', self.head_dim, 'RBF_similarity:', self.RBF_similarity)
+
+        if self.special_cls:
+            self.cls_proj = nn.Linear(embed_dim, embed_dim)
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim)
+        self.k_proj = nn.Linear(embed_dim, embed_dim)
+        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout['embedding_attn'])
+        self.o_proj = nn.Linear(embed_dim, embed_dim)
+
+    def rank_patches_by_attention(attn: torch.Tensor) -> torch.Tensor:
+        """
+        Ranks image patches by the total attention they receive.
+
+        """
+        # Average over heads: (B, T, T)
+        attn_mean = attn.mean(dim=1)
+
+        # Total attention received by each token: sum over the source positions (axis=-2)
+        # attention_received[b, j] = sum over i of attn[b, i, j]
+        attention_received = attn_mean.sum(dim=1)  # shape: (B, T)
+
+        # Sort patches by total attention received, descending
+        sorted_indices = attention_received.argsort(dim=1, descending=True)  # shape: (B, T)
+
+        return sorted_indices
+
+
+
+    def forward(self, x):
+        batch_size, seq_len, embed_dim = x.shape
+        # x.shape = (batch_size, seq_len, embed_dim)
+        assert embed_dim == self.embed_dim, f"Input embedding dimension ({embed_dim}) should match layer embedding dimension ({self.embed_dim})"
+
+        q, k, v = [
+            proj(x).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+            for proj, x in zip([self.q_proj, self.k_proj, self.v_proj], [x, x, x])
+        ]
+
+        # Compute scaled dot-product attention
+        qk_dot = q @ k.transpose(-2, -1)
+
+        attn_logits = ( qk_dot / ( (self.head_dim )** 0.5))
+        # attn_logits.shape = (batch_size, num_heads, seq_len, seq_len)
+        attn = attn_logits.softmax(dim=-1)
+        # attn.shape = (batch_size, num_heads, seq_len, seq_len)
+        attn = self.dropout(attn)
+
+        if self.RBF_similarity != 'none':
+            if self.tensor_dimension != 2:
+                raise ValueError("RBF similarity is only implemented for standard 2D tensors products (Query and Key) ")
+            # Compute RBF similarity
+            if self.RBF_similarity == 'quantum':
+                ponderators = torch.sigmoid( self.quantum_ponderation( torch.zeros( (2,), device = x.device) ))
+            elif isinstance(self.RBF_similarity, numbers.Real):    
+                ponderators = torch.tensor([1 - self.RBF_similarity, self.RBF_similarity], device=x.device, dtype=torch.float32)
+            else: # RBF_similarity == 'linear'
+                sigmoid_val = torch.sigmoid(self.ponderation_param)
+                ponderators = torch.stack([1 - sigmoid_val, sigmoid_val])
+
+            # promote to float32 for stability
+            q32 = q.float()
+            k32 = k.float()
+
+            q_norm = (q32 ** 2).sum(dim=-1, keepdim=True)            # (B,H,S,1)
+            k_norm = (k32 ** 2).sum(dim=-1, keepdim=True).transpose(-2, -1)  # (B,H,1,S)
+
+            # distance
+            dists_squared = q_norm + k_norm - 2 * (q32 @ k32.transpose(-2, -1))
+
+            # clamp negative numerical noise
+            dists_squared = dists_squared.clamp_min(0.0)
+
+            # scale (avoid too-small / too-large)
+            sigma_squared = q_norm.clamp_min(1e-8).clamp_max(1e4)  # tune upper bound as needed
+
+            attn_RBF_logits = torch.exp(-dists_squared / sigma_squared)
+
+            denom = attn_RBF_logits.sum(dim=-1, keepdim=True).clamp_min(1e-8)
+            attn_RBF = attn_RBF_logits / denom
+
+            attn_RBF = self.dropout(attn_RBF)
+
+            if (~torch.isfinite(attn_RBF)).any():
+                import warnings
+                print(f"Registered non-finite attn. ponderators={ponderators}")
+                warnings.warn(f"Non-finite RBF attention detected. Ponderators = {ponderators}", RuntimeWarning)
+                
+            # sanitize just in case
+            attn_RBF = torch.nan_to_num(attn_RBF, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # mix (ponderators assumed roughly sum=1 but be safe)
+
+            weight_sum = ponderators[0] + ponderators[1]
+            attn = (ponderators[0] * attn + ponderators[1] * attn_RBF) / (weight_sum + 1e-7)
+
+
+        # Compute output
+        values = attn @ v
+        # values.shape = (batch_size, num_heads, seq_len, head_dim)
+        values = values.transpose(1, 2).reshape(batch_size, seq_len, embed_dim)
+        # values.shape = (batch_size, seq_len, embed_dim)
+        x = self.o_proj(values)
+        # x.shape = (batch_size, seq_len, embed_dim)
+
+        return x, attn
+
 class FeedForward(nn.Module):
     def __init__(self, hidden_size, mlp_hidden_size, hidden_size_out , quantum = True, dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225},
                     q_stride = 4, trainBool = False, entangle = True, graph = 'chain'):
