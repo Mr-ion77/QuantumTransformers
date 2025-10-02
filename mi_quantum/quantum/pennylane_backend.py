@@ -69,9 +69,6 @@ class QuantumLayer(torch.nn.Module):
         if self.graph == None:
             raise ValueError(f'Graph must be a string or a list containing the edges of the graph, but got {graph}. Please enter a valid list or a string such as:\n "chain", "star"... ')
         
-        # if self.trainBool:
-        #     self.graph = [[i, j] for i in range(self.num_qubits) for j in range(i+1, self.num_qubits)]
-
         dev = qml.device('default.qubit', wires=num_qubits)
 
         # Quantum circuit
@@ -85,11 +82,11 @@ class QuantumLayer(torch.nn.Module):
             #         theta, phi, rho = weights[qubit*3 : (qubit+1)*3]
             #         qml.U3(theta, phi, rho, wires=qubit)
 
-            if self.entangle:
-                for i, pair in enumerate(self.graph):
-                     qml.CRX(np.pi/3 if not self.trainBool else weights[num_qubits*3 + i], wires=[pair[0], pair[1]]) 
+            #if self.entangle:
+            #    for i, pair in enumerate(self.graph):
+            #            qml.CRX(np.pi/3 if not self.trainBool else weights[num_qubits*3 + i], wires=[pair[0], pair[1]]) 
 
-            #qml.StronglyEntanglingLayers(weights, wires=range(num_qubits), ranges = [2])
+            qml.StronglyEntanglingLayers(weights, wires=range(num_qubits), ranges = [1])
 
             return [qml.expval(qml.PauliZ(i)) for i in range(num_qubits)]
 

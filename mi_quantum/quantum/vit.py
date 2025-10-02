@@ -623,7 +623,6 @@ class AutoEnformer(nn.Module):
                 # Repeat x for each parallel branch
                 x_parallel = x.unsqueeze(0).repeat(self.paralel, 1, 1, 1)  # [P, B, S, D]
 
-                last_layers_outputs = []
                 outputs = []
 
                 for i in range(self.paralel):
@@ -693,6 +692,7 @@ class DeViT(nn.Module):
                 self.p = p
                 self.shape = shape
                 self.dimension_adjustment = nn.Linear(dim_latent, shape[0]* p['patch_size']**2)
+                self.dim_latent = dim_latent
 
                 self.trainlosslist = []
                 self.trauclist = []
@@ -713,7 +713,7 @@ class DeViT(nn.Module):
                 
             def forward(self, x):  
                 
-                assert x.shape[-1] == self.p['mlp_size']*self.p['paralel'], f"Input feature dimension ({x.shape[-1]}) does not match expected size ({self.p['mlp_size']*self.p['paralel']})"
+                assert x.shape[-1] == self.dim_latent, f"Input feature dimension ({x.shape[-1]}) does not match expected size ({self.dim_latent})"
 
                 x = self.dimension_adjustment(x)  
                 x = x.reshape((x.shape[0],) + self.shape)
