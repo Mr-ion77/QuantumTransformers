@@ -28,9 +28,9 @@ p1 = {
 }
 
 p2 = {
-    'learning_rate': 1e-7, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.1, 'after_attn': 0.1, 'feedforward': 0.1, 'embedding_pos': 0.1},
+    'learning_rate': 0.0025, 'hidden_size': 48, 'dropout': {'embedding_attn': 0.1, 'after_attn': 0.05, 'feedforward': 0.05, 'embedding_pos': 0.05},
     'quantum' : False, 'num_head': 4, 'Attention_N' : 2, 'num_transf': 2, 'mlp_size': 9, 'patch_size': 4, 'weight_decay': 1e-7, 'attention_selection': 'filter', 'RD': 1, 
-    'paralel': 2, 'patience': -1, 'scheduler_factor': 0.989, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
+    'paralel': 2, 'patience': -1, 'scheduler_factor': 0.9995, 'q_stride': 1, 'RBF_similarity': 'none'  # No early stopping
 }
 
 # Save dictionary with all the hyperparameters and results in a json file
@@ -46,7 +46,7 @@ with open('../QTransformer_Results_and_Datasets/autoenformer_results/current_res
 columns = [
     # 'idx', 'learning_rate', 'hidden_size', 'dropout', 'num_head', 'num_transf', 'mlp_size', 'patch_size',
     # 'weight_decay', 'attention_selection', 'entangle', 'penny_or_kipu', 'RD', 'convolutional', 'paralel', 
-    'idx', 'lr', 'test_mse', 'val_mse', '#params1' , 'test_auc', 'test_acc', 'val_auc', 'val_acc', '#params2'
+    'idx', 'lr', 'test_mse', 'val_mse', '#params1' , 'test_auc', 'test_acc', 'val_auc', 'val_acc', 'train_auc',  '#params2'
 ]
 
 channels_last = False           # Set to True if last dimension of datasets tensors match channels dimension
@@ -64,8 +64,8 @@ for idx in range(50):
     os.makedirs(save_path / 'autoencoder', exist_ok=True)
 
     for lr_config, q_config in itertools.product( [5e-5, 7.5e-5, 1e-4, 2.5e-4, 5e-4, 7.5e-4, 1e-3, 2.5e-3, 5e-3, 7.5e-3, 1e-2, 2.5e-2, 5e-2], ['patchwise', 'none'] ):
-        p2['learning_rate'] = lr_config
-        p1['quantum'] = q_config
+        #p2['learning_rate'] = lr_config
+        #p1['quantum'] = q_config
         print(f"Quantum process data?:  {p1['quantum']}")
 
         if (idx == 0 and lr_config == 5e-5 and q_config == 'patchwise') or RepeatAutoencoder:

@@ -517,6 +517,6 @@ def train_and_evaluate(
                     save_attention(pred, images, dir_misclassified_test,patch_size)  # Use attention for misclassified
 
     if not autoencoder:
-        return test_auc, test_acc, best_val_auc, best_val_acc, best_train_auc, number_of_parameters
+        return test_auc, test_acc, best_val_auc, best_val_acc, best_tr_auc, number_of_parameters
     else:
         return mse, best_val_mse, number_of_parameters
