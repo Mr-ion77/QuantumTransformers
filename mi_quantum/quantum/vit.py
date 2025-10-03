@@ -395,7 +395,7 @@ class FeedForward(nn.Module):
 
 class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
     def __init__(self, hidden_size, num_heads, mlp_hidden_size, hidden_size_out, Attention_N = 2, quantum_mlp = True, RBF_similarity= 'none', dropout={'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
-                    attention_selection="filter", train_q = False, entangle = True, q_stride = 4, connectivity = 'chain', RD = 1, img_size = 28, patch_size = 4):
+                    attention_selection="filter", special_cls = False ,train_q = False, entangle = True, q_stride = 4, connectivity = 'chain', RD = 1, img_size = 28, patch_size = 4):
         super().__init__()
 
         self.attention_selection = attention_selection
@@ -406,7 +406,10 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
         self.Attention_N = Attention_N
         # Attention components
         self.attn_norm = nn.LayerNorm(hidden_size)
-        self.attn = NMultiheadSelfAttention(embed_dim = hidden_size, num_heads = num_heads, N=Attention_N, dropout = dropout, RBF_similarity= self.RBF_similarity)
+        if self.Attention_N == 2:
+            self.attn = MultiheadSelfAttention(embed_dim = hidden_size, num_heads = num_heads, dropout = dropout, RBF_similarity= self.RBF_similarity, special_cls = self.special_cls)
+        else:
+            self.attn = NMultiheadSelfAttention(embed_dim = hidden_size, num_heads = num_heads, N=Attention_N, dropout = dropout, RBF_similarity= self.RBF_similarity)
         self.attn_dropout = nn.Dropout(dropout['after_attn'])
         self.hidden_size_out = hidden_size_out
         self.RD = RD
@@ -492,7 +495,7 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
 class VisionTransformer(nn.Module):
     def __init__(self, img_size, num_channels, num_classes, patch_size, hidden_size, num_heads, num_transformer_blocks, mlp_hidden_size, Attention_N = 2,
                     quantum_mlp = False, RBF_similarity = 'none', quantum_classification = False, dropout= {'embedding_attn': 0.225, 'after_attn': 0.225, 'feedforward': 0.225, 'embedding_pos': 0.225}, 
-                    channels_last=False, RD = 1, attention_selection = 'filter', 
+                    channels_last=False, RD = 1, attention_selection = 'filter', special_cls = False,
                     paralel = 1, train_q = False, entangle = True, q_stride = 1, connectivity = 'chain'
                     ):
         super().__init__()
@@ -518,8 +521,7 @@ class VisionTransformer(nn.Module):
         self.quantum_classification = quantum_classification
         self.train_q = train_q
         self.RBF_similarity = RBF_similarity
-
-        self.train_q = train_q
+        self.special_cls = special_cls
         self.entangle = entangle
         self.q_stride = q_stride
         self.connectivity = connectivity
@@ -546,7 +548,7 @@ class VisionTransformer(nn.Module):
         self.transformer_blocks = nn.ModuleList( [nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , 
                                                                                         Attention_N = self.Attention_N, quantum_mlp = self.quantum_mlp,
                                                                                         RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
-                                                                                        attention_selection = self.attention_selection,
+                                                                                        attention_selection = self.attention_selection, special_cls = self.special_cls
                                                                                         train_q = self.train_q, entangle = self.entangle, q_stride = self.q_stride, connectivity = self.connectivity)
                                             for i in range(num_transformer_blocks)]) for j in range(paralel) ] )
 
@@ -831,7 +833,7 @@ class DeViT(nn.Module):
                 self.vit = VisionTransformer(
                     img_size=shape[-1], num_channels=shape[0], num_classes=num_classes,
                     patch_size=p['patch_size'], hidden_size= shape[0]* p['patch_size']**2, num_heads=p['num_head'], Attention_N = p['Attention_N'],
-                    num_transformer_blocks=p['num_transf'], attention_selection='none', RBF_similarity = 'none',
+                    num_transformer_blocks=p['num_transf'], attention_selection= p['attention_selection'], special_cls = p['special_cls'], RBF_similarity = 'none',
                     mlp_hidden_size=p['mlp_size'], quantum_mlp = False, dropout = p['dropout'], channels_last=False, entangle=False, quantum_classification = False,
                     paralel = p['paralel'], RD = p['RD'], train_q = False, q_stride = p['q_stride'], connectivity = 'chain'
                 )
