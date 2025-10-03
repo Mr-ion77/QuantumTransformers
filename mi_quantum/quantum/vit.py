@@ -404,6 +404,7 @@ class TransformerBlock_Attention_Chosen_QMLP(nn.Module):
         self.RBF_similarity = RBF_similarity
         self.dropout = dropout
         self.Attention_N = Attention_N
+        self.special_cls = special_cls
         # Attention components
         self.attn_norm = nn.LayerNorm(hidden_size)
         if self.Attention_N == 2:
@@ -548,7 +549,7 @@ class VisionTransformer(nn.Module):
         self.transformer_blocks = nn.ModuleList( [nn.ModuleList([TransformerBlock_Attention_Chosen_QMLP(hidden_size // RD**i, num_heads, mlp_hidden_size, hidden_size // RD**(i + 1) , 
                                                                                         Attention_N = self.Attention_N, quantum_mlp = self.quantum_mlp,
                                                                                         RBF_similarity= self.RBF_similarity ,dropout = self.dropout_values,
-                                                                                        attention_selection = self.attention_selection, special_cls = self.special_cls
+                                                                                        attention_selection = self.attention_selection, special_cls = self.special_cls,
                                                                                         train_q = self.train_q, entangle = self.entangle, q_stride = self.q_stride, connectivity = self.connectivity)
                                             for i in range(num_transformer_blocks)]) for j in range(paralel) ] )
 

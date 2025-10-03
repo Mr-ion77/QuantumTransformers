@@ -71,7 +71,7 @@ for idx in range(20):
         NoneBool, PatchBool, QuanBool = 'none' in q_config, 'patchwise' in q_config, 'quanvolution' in q_config
         print(f"Current quantum configuration:\nNormal latent representations: {NoneBool}\nPatchwise Quantum latent representations: {PatchBool}\nQuanvolution latent representations: {QuanBool}")
 
-        if (idx == 0) and (lr == )or RepeatAutoencoder:
+        if (idx == 0) and (lr == 1e-5)or RepeatAutoencoder:
             print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layers: {list(q_config)} and Learning Rate: {p1["learning_rate"]}\n')
 
             # Load data
@@ -118,126 +118,126 @@ for idx in range(20):
             print(f'Quantum configuration is {q_config} ')
             
         for dl in tqdm(DataLoaders, desc="Processing DataLoaders"):
-                if NoneBool:
-                    all_latents_normal = []
-                if PatchBool:
-                    all_latents_quantum = []
-                if QuanBool:
-                    all_latents_quanv = []
-                
-                all_labels = []
-                all_indices = []
-                for images, labels, indices in dl:
-                    images = images.to(device)
-                    with torch.no_grad():
-
-                        if NoneBool:
-                            normal_outs = []
-                        if PatchBool:
-                            quantum_outs = []
-                        if QuanBool:
-                            quanv_outs = []                   
-                        
-                        latent_aux = model1.get_latent_representation(images)
-                        for i in range(p1['paralel']):
-                                
-                            if PatchBool:
-                                quantum_outs.append( QuantumLayer( latent_aux[i] ) )
-                            if QuanBool:
-                                quanv_outs.append( Quanvolution( latent_aux[i].unsqueeze(dim = 1) ) )
-
-                    all_labels.extend( labels )
-                    if NoneBool:
-                        all_latents_normal.extend( latent_aux.view( (latent_aux.shape[1],latent_aux.shape[2], -1) ) )
-                    if PatchBool:
-                        quantum_representations = torch.cat(quantum_outs, dim = -1).cpu()        
-                        all_latents_quantum.extend( quantum_representations )
-                    if QuanvOut:
-                        quanv_representations = torch.cat(quanv_outs, dim = -1).cpu()
-                        all_latents_quanv.extend( quanv_representations )
-
-                all_labels = torch.tensor(all_labels)
-                if NoneBool:
-                    all_latents_normal = torch.stack(all_latents_normal)
-                    NorLatentDatasetsTensors.append( list(zip(all_latents_normal ,all_labels))  )
-                if PatchBool:
-                    all_latents_quantum = torch.stack(all_latents_quantum)
-                    QuLatentDatasetsTensors.append ( list(zip(all_latents_quantum, all_labels)) )
-                if QuanvBool:
-                    all_latents_quanv = torch.stack(all_latents_quanv)
-                    MoLatentDatasetsTensors.append ( list(zip(all_latents_quanv, all_labels)) )
-
-                
             if NoneBool:
-                NorLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                            tensors = NorLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
-                                            )
+                all_latents_normal = []
             if PatchBool:
-                PatchLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                        tensors = QuLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
-                                        )
-            if QuanvBool:
-                QuanvLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                        tensors = MoLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
-                                        )
+                all_latents_quantum = []
+            if QuanBool:
+                all_latents_quanv = []
+            
+            all_labels = []
+            all_indices = []
+            for images, labels, indices in dl:
+                images = images.to(device)
+                with torch.no_grad():
 
-            Latents = {k: v for k, v in zip(['none', 'patchwise', 'quanvolution'], [NorLatents, PatchLatents, QuanvLatents]) if k in q_config}
+                    if NoneBool:
+                        normal_outs = []
+                    if PatchBool:
+                        quantum_outs = []
+                    if QuanBool:
+                        quanv_outs = []                   
+                    
+                    latent_aux = model1.get_latent_representation(images)
+                    for i in range(p1['paralel']):
+                            
+                        if PatchBool:
+                            quantum_outs.append( QuantumLayer( latent_aux[i] ) )
+                        if QuanBool:
+                            quanv_outs.append( Quanvolution( latent_aux[i].unsqueeze(dim = 1) ) )
 
-            if idx == 0:
-                save_path_latent = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/latent_datasets")
-                save_path_latent.mkdir(parents=True, exist_ok=True)
-                if PatchBool:
-                    torch.save(QuLatentDatasetsTensors[0], save_path_latent / 'qlatent_train_dataset.pt')
-                    torch.save(QuLatentDatasetsTensors[1], save_path_latent / 'qlatent_val_dataset.pt')
-                    torch.save(QuLatentDatasetsTensors[2], save_path_latent / 'qlatent_test_dataset.pt')
+                all_labels.extend( labels )
                 if NoneBool:
-                    torch.save(NorLatentDatasetsTensors[0], save_path_latent / 'nlatent_train_dataset.pt')
-                    torch.save(NorLatentDatasetsTensors[1], save_path_latent / 'nlatent_val_dataset.pt')
-                    torch.save(NorLatentDatasetsTensors[2], save_path_latent / 'nlatent_test_dataset.pt')
-                if QuanvBool:
-                    torch.save(MoLatentDatasetsTensors[0], save_path_latent / 'mlatent_train_dataset.pt')
-                    torch.save(MoLatentDatasetsTensors[1], save_path_latent / 'mlatent_val_dataset.pt')
-                    torch.save(MoLatentDatasetsTensors[2], save_path_latent / 'mlatent_test_dataset.pt')
-                
+                    all_latents_normal.extend( latent_aux.view( (latent_aux.shape[1],latent_aux.shape[2], -1) ) )
+                if PatchBool:
+                    quantum_representations = torch.cat(quantum_outs, dim = -1).cpu()        
+                    all_latents_quantum.extend( quantum_representations )
+                if QuanvOut:
+                    quanv_representations = torch.cat(quanv_outs, dim = -1).cpu()
+                    all_latents_quanv.extend( quanv_representations )
 
-            # Create second model for the second step)
-
-            for config in list(q_config):
-                config_dataset = Latents[config]
-                shape2 = config_dataset[-1]
-                p2['learning_rate'] = lr
-                model2 = qpctorch.quantum.vit.DeViT(num_classes=7, p = p2, shape = shape, dim_latent = shape2[-1]) # The shape needed is that of the original images, in this case [3, 28, 28]
-
-                print('\nTraining second model: classifier ViT on latent representations\n')
-                print(f'QUANTUM SETTING IS: {config} and current lr is: {p2['learning_rate']}')
-                # Train second model
-                test_auc, test_acc, val_auc, val_acc, train_auc, params2 = qpctorch.training.train_and_evaluate(
-                    model2, config_dataset[0], config_dataset[1], config_dataset[2], num_classes=7,
-                    learning_rate=p2['learning_rate'], num_epochs=N2, device=device, mapping=False,
-                    res_folder=str(save_path), hidden_size=p2['hidden_size'], dropout=p2['dropout'],
-                    num_heads=p2['num_head'], patch_size=p2['patch_size'], num_transf=p2['num_transf'],
-                    mlp=p2['mlp_size'], wd=p2['weight_decay'], patience= p2['patience'], scheduler_factor=p2['scheduler_factor'], autoencoder=False
-                ) # type: ignore
+            all_labels = torch.tensor(all_labels)
+            if NoneBool:
+                all_latents_normal = torch.stack(all_latents_normal)
+                NorLatentDatasetsTensors.append( list(zip(all_latents_normal ,all_labels))  )
+            if PatchBool:
+                all_latents_quantum = torch.stack(all_latents_quantum)
+                QuLatentDatasetsTensors.append ( list(zip(all_latents_quantum, all_labels)) )
+            if QuanvBool:
+                all_latents_quanv = torch.stack(all_latents_quanv)
+                MoLatentDatasetsTensors.append ( list(zip(all_latents_quanv, all_labels)) )
 
                 
-                # Save results
-                row = {
-                    'idx': idx, 
-                        'q_config' : config, 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
-                        'test_auc': test_auc, 'test_acc': test_acc, 'val_auc': val_auc, 'val_acc': val_acc, 'train_auc': train_auc,'#params2': params2,
-                        **p1, **p2
-                }
+        if NoneBool:
+            NorLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
+                                        tensors = NorLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
+                                        )
+        if PatchBool:
+            PatchLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
+                                    tensors = QuLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
+                                    )
+        if QuanvBool:
+            QuanvLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
+                                    tensors = MoLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
+                                    )
 
-                pd.DataFrame([row], columns=columns).to_csv(
-                    '../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=False, index=False
-                )
+        Latents = {k: v for k, v in zip(['none', 'patchwise', 'quanvolution'], [NorLatents, PatchLatents, QuanvLatents]) if k in q_config}
 
-                History_df = pd.read_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv')
+        if idx == 0:
+            save_path_latent = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/latent_datasets")
+            save_path_latent.mkdir(parents=True, exist_ok=True)
+            if PatchBool:
+                torch.save(QuLatentDatasetsTensors[0], save_path_latent / 'qlatent_train_dataset.pt')
+                torch.save(QuLatentDatasetsTensors[1], save_path_latent / 'qlatent_val_dataset.pt')
+                torch.save(QuLatentDatasetsTensors[2], save_path_latent / 'qlatent_test_dataset.pt')
+            if NoneBool:
+                torch.save(NorLatentDatasetsTensors[0], save_path_latent / 'nlatent_train_dataset.pt')
+                torch.save(NorLatentDatasetsTensors[1], save_path_latent / 'nlatent_val_dataset.pt')
+                torch.save(NorLatentDatasetsTensors[2], save_path_latent / 'nlatent_test_dataset.pt')
+            if QuanvBool:
+                torch.save(MoLatentDatasetsTensors[0], save_path_latent / 'mlatent_train_dataset.pt')
+                torch.save(MoLatentDatasetsTensors[1], save_path_latent / 'mlatent_val_dataset.pt')
+                torch.save(MoLatentDatasetsTensors[2], save_path_latent / 'mlatent_test_dataset.pt')
+            
 
-                plt.figure(figsize=(10, 6))
-                plt.boxplot([History_df['val_auc'], History_df['test_auc']], tick_labels=['Validation AUC', 'Test AUC']) # type: ignore
-                plt.title('Validation and Test AUC Distribution')
-                plt.ylabel('AUC')
-                plt.grid(axis='y')
-                plt.savefig('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/auc_boxplot.png')
+        # Create second model for the second step)
+
+        for config in list(q_config):
+            config_dataset = Latents[config]
+            shape2 = config_dataset[-1]
+            p2['learning_rate'] = lr
+            model2 = qpctorch.quantum.vit.DeViT(num_classes=7, p = p2, shape = shape, dim_latent = shape2[-1]) # The shape needed is that of the original images, in this case [3, 28, 28]
+
+            print('\nTraining second model: classifier ViT on latent representations\n')
+            print(f'QUANTUM SETTING IS: {config} and current lr is: {p2["learning_rate"]}')
+            # Train second model
+            test_auc, test_acc, val_auc, val_acc, train_auc, params2 = qpctorch.training.train_and_evaluate(
+                model2, config_dataset[0], config_dataset[1], config_dataset[2], num_classes=7,
+                learning_rate=p2['learning_rate'], num_epochs=N2, device=device, mapping=False,
+                res_folder=str(save_path), hidden_size=p2['hidden_size'], dropout=p2['dropout'],
+                num_heads=p2['num_head'], patch_size=p2['patch_size'], num_transf=p2['num_transf'],
+                mlp=p2['mlp_size'], wd=p2['weight_decay'], patience= p2['patience'], scheduler_factor=p2['scheduler_factor'], autoencoder=False
+            ) # type: ignore
+
+            
+            # Save results
+            row = {
+                'idx': idx, 
+                    'q_config' : config, 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
+                    'test_auc': test_auc, 'test_acc': test_acc, 'val_auc': val_auc, 'val_acc': val_acc, 'train_auc': train_auc,'#params2': params2,
+                    **p1, **p2
+            }
+
+            pd.DataFrame([row], columns=columns).to_csv(
+                '../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=False, index=False
+            )
+
+            History_df = pd.read_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv')
+
+            plt.figure(figsize=(10, 6))
+            plt.boxplot([History_df['val_auc'], History_df['test_auc']], tick_labels=['Validation AUC', 'Test AUC']) # type: ignore
+            plt.title('Validation and Test AUC Distribution')
+            plt.ylabel('AUC')
+            plt.grid(axis='y')
+            plt.savefig('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/auc_boxplot.png')
 
