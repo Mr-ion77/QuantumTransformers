@@ -53,8 +53,11 @@ columns = [
 channels_last = False           # Set to True if last dimension of datasets tensors match channels dimension
 RepeatAutoencoder = False       # Set to True if you want to train the autoencoder each time for more variability. For a better performance and faster training set to False.
 
-df = pd.DataFrame(columns=columns)
-df.to_csv('../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv', mode='a', header=True, index=False)
+
+csv_path = '../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv'
+if not os.path.exists(csv_path):
+    df = pd.DataFrame(columns=columns)
+    df.to_csv(csv_path, mode='a', header=True, index=False)
 
 q_config = {'none', 'patchwise', 'quanvolution'}
 
@@ -68,10 +71,10 @@ for idx in range(20):
 
         # Determine if quantum processing is enabled based on q_config
         # q_config can be a string or a list/tuple; handle both
-        NoneBool, PatchBool, QuanBool = 'none' in q_config, 'patchwise' in q_config, 'quanvolution' in q_config
-        print(f"Current quantum configuration:\nNormal latent representations: {NoneBool}\nPatchwise Quantum latent representations: {PatchBool}\nQuanvolution latent representations: {QuanBool}")
+        NoneBool, PatchBool, QuanvBool = 'none' in q_config, 'patchwise' in q_config, 'quanvolution' in q_config
+        print(f"Current quantum configuration:\nNormal latent representations: {NoneBool}\nPatchwise Quantum latent representations: {PatchBool}\nQuanvolution latent representations: {QuanvBool}")
 
-        if (idx == 0) and (lr == 1e-5)or RepeatAutoencoder:
+        if ((idx == 0) and (lr == 1e-5)) or RepeatAutoencoder:
             print(f'\nTraining first model: Autoencoder\nOptiosn: Autoencoder with Quantum Layers: {list(q_config)} and Learning Rate: {p1["learning_rate"]}\n')
 
             # Load data
@@ -111,93 +114,93 @@ for idx in range(20):
             if PatchBool:
                 QuLatentDatasetsTensors = []
                 QuantumLayer = qpctorch.quantum.pennylane_backend.QuantumLayer(num_qubits = p1['mlp_size'], entangle = p1['entangle'], graph = p1['connectivity'])
-            if QuanBool:
+            if QuanvBool:
                 MoLatentDatasetsTensors = []
                 Quanvolution = QuantumConv2D(patch_size=3, stride=1, padding=1, channels_out = [4], ancilla = 0, graph= 'king')
 
             print(f'Quantum configuration is {q_config} ')
             
-        for dl in tqdm(DataLoaders, desc="Processing DataLoaders"):
-            if NoneBool:
-                all_latents_normal = []
-            if PatchBool:
-                all_latents_quantum = []
-            if QuanBool:
-                all_latents_quanv = []
-            
-            all_labels = []
-            all_indices = []
-            for images, labels, indices in dl:
-                images = images.to(device)
-                with torch.no_grad():
-
-                    if NoneBool:
-                        normal_outs = []
-                    if PatchBool:
-                        quantum_outs = []
-                    if QuanBool:
-                        quanv_outs = []                   
-                    
-                    latent_aux = model1.get_latent_representation(images)
-                    for i in range(p1['paralel']):
-                            
-                        if PatchBool:
-                            quantum_outs.append( QuantumLayer( latent_aux[i] ) )
-                        if QuanBool:
-                            quanv_outs.append( Quanvolution( latent_aux[i].unsqueeze(dim = 1) ) )
-
-                all_labels.extend( labels )
+            for i, dl in enumerate(DataLoaders):
                 if NoneBool:
-                    all_latents_normal.extend( latent_aux.view( (latent_aux.shape[1],latent_aux.shape[2], -1) ) )
+                    all_latents_normal = []
                 if PatchBool:
-                    quantum_representations = torch.cat(quantum_outs, dim = -1).cpu()        
-                    all_latents_quantum.extend( quantum_representations )
-                if QuanvOut:
-                    quanv_representations = torch.cat(quanv_outs, dim = -1).cpu()
-                    all_latents_quanv.extend( quanv_representations )
-
-            all_labels = torch.tensor(all_labels)
-            if NoneBool:
-                all_latents_normal = torch.stack(all_latents_normal)
-                NorLatentDatasetsTensors.append( list(zip(all_latents_normal ,all_labels))  )
-            if PatchBool:
-                all_latents_quantum = torch.stack(all_latents_quantum)
-                QuLatentDatasetsTensors.append ( list(zip(all_latents_quantum, all_labels)) )
-            if QuanvBool:
-                all_latents_quanv = torch.stack(all_latents_quanv)
-                MoLatentDatasetsTensors.append ( list(zip(all_latents_quanv, all_labels)) )
-
+                    all_latents_quantum = []
+                if QuanvBool:
+                    all_latents_quanv = []
                 
-        if NoneBool:
-            NorLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                        tensors = NorLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
-                                        )
-        if PatchBool:
-            PatchLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                    tensors = QuLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
-                                    )
-        if QuanvBool:
-            QuanvLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
-                                    tensors = MoLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
-                                    )
+                all_labels = []
+                all_indices = []
+                for images, labels, indices in tqdm(dl, desc= f"Processing { ['train', 'validation', 'test'][i]} split: \t"):
+                    images = images.to(device)
+                    with torch.no_grad():
 
-        Latents = {k: v for k, v in zip(['none', 'patchwise', 'quanvolution'], [NorLatents, PatchLatents, QuanvLatents]) if k in q_config}
+                        if NoneBool:
+                            normal_outs = []
+                        if PatchBool:
+                            quantum_outs = []
+                        if QuanvBool:
+                            quanv_outs = []                   
+                        
+                        latent_aux = model1.get_latent_representation(images)
+                        for i in range(p1['paralel']):
+                                
+                            if PatchBool:
+                                quantum_outs.append( QuantumLayer( latent_aux[i] ) )
+                            if QuanvBool:
+                                quanv_outs.append( Quanvolution( latent_aux[i].unsqueeze(dim = 1) ) )
 
-        if idx == 0:
-            save_path_latent = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/latent_datasets")
-            save_path_latent.mkdir(parents=True, exist_ok=True)
-            if PatchBool:
-                torch.save(QuLatentDatasetsTensors[0], save_path_latent / 'qlatent_train_dataset.pt')
-                torch.save(QuLatentDatasetsTensors[1], save_path_latent / 'qlatent_val_dataset.pt')
-                torch.save(QuLatentDatasetsTensors[2], save_path_latent / 'qlatent_test_dataset.pt')
+                    all_labels.extend( labels )
+                    if NoneBool:
+                        all_latents_normal.extend( latent_aux.view( (latent_aux.shape[1],latent_aux.shape[2], -1) ) )
+                    if PatchBool:
+                        quantum_representations = torch.cat(quantum_outs, dim = -1).cpu()        
+                        all_latents_quantum.extend( quantum_representations )
+                    if QuanvBool:
+                        quanv_representations = torch.cat(quanv_outs, dim = -1).cpu()
+                        all_latents_quanv.extend( quanv_representations )
+
+                all_labels = torch.tensor(all_labels)
+                if NoneBool:
+                    all_latents_normal = torch.stack(all_latents_normal)
+                    NorLatentDatasetsTensors.append( list(zip(all_latents_normal ,all_labels))  )
+                if PatchBool:
+                    all_latents_quantum = torch.stack(all_latents_quantum)
+                    QuLatentDatasetsTensors.append ( list(zip(all_latents_quantum, all_labels)) )
+                if QuanvBool:
+                    all_latents_quanv = torch.stack(all_latents_quanv)
+                    MoLatentDatasetsTensors.append ( list(zip(all_latents_quanv, all_labels)) )
+
+                    
             if NoneBool:
-                torch.save(NorLatentDatasetsTensors[0], save_path_latent / 'nlatent_train_dataset.pt')
-                torch.save(NorLatentDatasetsTensors[1], save_path_latent / 'nlatent_val_dataset.pt')
-                torch.save(NorLatentDatasetsTensors[2], save_path_latent / 'nlatent_test_dataset.pt')
+                NorLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
+                                            tensors = NorLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
+                                            )
+            if PatchBool:
+                PatchLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
+                                        tensors = QuLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
+                                        )
             if QuanvBool:
-                torch.save(MoLatentDatasetsTensors[0], save_path_latent / 'mlatent_train_dataset.pt')
-                torch.save(MoLatentDatasetsTensors[1], save_path_latent / 'mlatent_val_dataset.pt')
-                torch.save(MoLatentDatasetsTensors[2], save_path_latent / 'mlatent_test_dataset.pt')
+                QuanvLatents = qpctorch.data.create_dataloaders(data_dir = None, batch_size = B, channels_last = channels_last,
+                                        tensors = MoLatentDatasetsTensors, transforms={'train': None, 'val': None, 'test': None}
+                                        )
+
+            Latents = {k: v for k, v in zip(['none', 'patchwise', 'quanvolution'], [NorLatents, PatchLatents, QuanvLatents]) if k in q_config}
+
+            if idx == 0:
+                save_path_latent = Path(f"../QTransformer_Results_and_Datasets/autoenformer_results/current_results/latent_datasets")
+                save_path_latent.mkdir(parents=True, exist_ok=True)
+                if PatchBool:
+                    torch.save(QuLatentDatasetsTensors[0], save_path_latent / 'qlatent_train_dataset.pt')
+                    torch.save(QuLatentDatasetsTensors[1], save_path_latent / 'qlatent_val_dataset.pt')
+                    torch.save(QuLatentDatasetsTensors[2], save_path_latent / 'qlatent_test_dataset.pt')
+                if NoneBool:
+                    torch.save(NorLatentDatasetsTensors[0], save_path_latent / 'nlatent_train_dataset.pt')
+                    torch.save(NorLatentDatasetsTensors[1], save_path_latent / 'nlatent_val_dataset.pt')
+                    torch.save(NorLatentDatasetsTensors[2], save_path_latent / 'nlatent_test_dataset.pt')
+                if QuanvBool:
+                    torch.save(MoLatentDatasetsTensors[0], save_path_latent / 'mlatent_train_dataset.pt')
+                    torch.save(MoLatentDatasetsTensors[1], save_path_latent / 'mlatent_val_dataset.pt')
+                    torch.save(MoLatentDatasetsTensors[2], save_path_latent / 'mlatent_test_dataset.pt')
             
 
         # Create second model for the second step)
@@ -223,7 +226,7 @@ for idx in range(20):
             # Save results
             row = {
                 'idx': idx, 
-                    'q_config' : config, 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
+                    'lr': lr, 'q_config' : config, 'test_mse': test_mse, 'val_mse': val_mse, '#params1': params1, 
                     'test_auc': test_auc, 'test_acc': test_acc, 'val_auc': val_auc, 'val_acc': val_acc, 'train_auc': train_auc,'#params2': params2,
                     **p1, **p2
             }
