@@ -54,27 +54,19 @@ if __name__ == "__main__":
         SendToTelegramBool = True
         NExperiments = 20
 
-        if SendToTelegramBool:
-                from telegram import Bot
-                TELEGRAM_TOKEN = "8369851856:AAGjGTo4349KUOB0FycE-sXGI1EOB3eLkxo"   # <-- keep private 😉
-                CHAT_ID = "6265691693"
-                bot = Bot(token=TELEGRAM_TOKEN)
-
-        ProgressBars = ["[░░░░░░░░░░] 0%","[█░░░░░░░░░] 25%","[█████░░░░░] 50%","[████████░░] 75%", "[██████████] 100% 🏁" ]
-        progress_levels = [0, int(NExperiments * 0.25), int(NExperiments * 0.5), int(NExperiments * 0.75), NExperiments - 1]
+        
         csv_path = '../QTransformer_Results_and_Datasets/autoenformer_results/current_results/results_grid_search.csv'
         if not os.path.exists(csv_path):
             df = pd.DataFrame(columns=columns)
             df.to_csv(csv_path, mode='a', header=True, index=False)
 
         q_config = {'none', 'patchwise', 'quanvolution'}
-
+        progress_levels = [0, 25, 50, 75, 100]
         # Grid search loop
         for idx in range(NExperiments):
-            
-            if idx in progress_levels:
-                index = progress_levels.index(idx)
-                bot.send_message(chat_id=CHAT_ID, text=f"Current progress 🚩: {ProgressBars[index]}")
+            progress = int( 100* idx//NExperiments )
+            if SendToTelegramBool and progress in progress_levels:
+                SendToTelegram(progress = progress)                
 
             for lr in [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3, 1e-2]:
                 print(f"\n\nPoint {idx}")
